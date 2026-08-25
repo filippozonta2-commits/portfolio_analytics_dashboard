@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 import pandas as pd
@@ -29,12 +30,12 @@ def getTicker(ticker: str) -> yf.Ticker:
 
 
 def _fastInfoFallback(tickerObject: yf.Ticker) -> dict[str, Any]:
-    '''Return normalized fields from yfinance fast_info when available.'''
-    try:
-        fastInfo = dict(tickerObject.fast_info)
-    except Exception:
-        return {}
+    '''Return normalized fields from yfinance fast_info when available.
 
+    fast_info is lazy: converting the whole object to a dict can discard every
+    field when Yahoo fails on just one property. Read each property
+    independently so the remaining values still reach the dashboard.
+    '''
     fieldMap = {
         'currency': 'currency',
         'day_high': 'dayHigh',
@@ -52,11 +53,89 @@ def _fastInfoFallback(tickerObject: yf.Ticker) -> dict[str, Any]:
         'year_low': 'fiftyTwoWeekLow'
     }
 
-    return {
-        destination: fastInfo.get(source)
-        for source, destination in fieldMap.items()
-        if fastInfo.get(source) is not None
-    }
+    try:
+        fastInfo = tickerObject.fast_info
+    except Exception:
+        return {}
+
+    values: dict[str, Any] = {}
+
+    for source, destination in fieldMap.items():
+        try:
+            value = fastInfo[source]
+        except Exception:
+            try:
+                value = getattr(fastInfo, source)
+            except Exception:
+                continue
+
+        if value is not None and not pd.isna(value):
+            values[destination] = value
+
+    return values
+
+
+def _historyFallback(tickerObject: yf.Ticker) -> dict[str, Any]:
+    '''Derive dependable market and dividend fields from price history.'''
+    try:
+        history = tickerObject.history(
+            period='1y',
+            auto_adjust=False,
+            actions=True
+        )
+    except Exception:
+        return {}
+
+    if history is None or history.empty:
+        return {}
+
+    values: dict[str, Any] = {}
+    close = history.get('Close')
+
+    if close is not None:
+        close = close.dropna()
+
+        if not close.empty:
+            values['currentPrice'] = float(close.iloc[-1])
+            values['previousClose'] = float(
+                close.iloc[-2] if len(close) > 1 else close.iloc[-1]
+            )
+            values['fiftyTwoWeekLow'] = float(close.min())
+            values['fiftyTwoWeekHigh'] = float(close.max())
+            values['fiftyDayAverage'] = float(close.tail(50).mean())
+            values['twoHundredDayAverage'] = float(close.tail(200).mean())
+
+    for column, field in (
+        ('Open', 'open'),
+        ('Low', 'dayLow'),
+        ('High', 'dayHigh')
+    ):
+        series = history.get(column)
+
+        if series is not None and not series.dropna().empty:
+            values[field] = float(series.dropna().iloc[-1])
+
+    volume = history.get('Volume')
+
+    if volume is not None and not volume.dropna().empty:
+        values['averageVolume'] = float(volume.dropna().tail(63).mean())
+
+    dividends = history.get('Dividends')
+
+    if dividends is not None:
+        annualDividend = float(dividends.fillna(0).sum())
+
+        if annualDividend > 0:
+            values['dividendRate'] = annualDividend
+            currentPrice = values.get('currentPrice')
+
+            if currentPrice:
+                values['dividendYield'] = annualDividend / currentPrice
+                values['trailingAnnualDividendYield'] = (
+                    annualDividend / currentPrice
+                )
+
+    return values
 
 
 def _quoteApiFallback(ticker: str) -> dict[str, Any]:
@@ -121,6 +200,7 @@ def _quoteApiFallback(ticker: str) -> dict[str, Any]:
     return {}
 
 
+@lru_cache(maxsize=128)
 def companyInfo(ticker: str) -> dict[str, Any]:
     '''Return company information.'''
     ticker = validateTicker(ticker)
@@ -144,6 +224,10 @@ def companyInfo(ticker: str) -> dict[str, Any]:
             info[field] = value
 
     for field, value in _fastInfoFallback(tickerObject).items():
+        if info.get(field) is None:
+            info[field] = value
+
+    for field, value in _historyFallback(tickerObject).items():
         if info.get(field) is None:
             info[field] = value
 

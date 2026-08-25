@@ -322,6 +322,32 @@ def dividendMetrics(
     ticker = validateTicker(ticker)
     info = companyInfo(ticker) if info is None else info
 
+    dividendYield = info.get('dividendYield')
+    trailingYield = info.get('trailingAnnualDividendYield')
+
+    # Yahoo currently mixes two conventions across endpoints: some fields
+    # arrive as decimal ratios (0.004 = 0.4%), while dividendYield and the
+    # five-year average may arrive in percentage points (0.4 = 0.4%).
+    # Prefer the trailing yield as a scale reference when it is available.
+    if dividendYield is not None:
+        dividendYield = float(dividendYield)
+
+        if trailingYield is not None:
+            trailingValue = float(trailingYield)
+
+            if (
+                trailingValue != 0
+                and abs(dividendYield / trailingValue) > 20
+            ):
+                dividendYield /= 100
+        elif abs(dividendYield) > 0.20:
+            dividendYield /= 100
+
+    fiveYearAverageYield = info.get('fiveYearAvgDividendYield')
+
+    if fiveYearAverageYield is not None:
+        fiveYearAverageYield = float(fiveYearAverageYield) / 100
+
     exDividendDate = info.get('exDividendDate')
 
     if exDividendDate is not None:
@@ -335,7 +361,7 @@ def dividendMetrics(
 
     return pd.Series(
         {
-            'Dividend Yield': info.get('dividendYield'),
+            'Dividend Yield': dividendYield,
             'Dividend Rate': info.get('dividendRate'),
             'Trailing Annual Dividend Yield': info.get(
                 'trailingAnnualDividendYield'
@@ -346,7 +372,7 @@ def dividendMetrics(
             'Payout Ratio': info.get('payoutRatio'),
             'Five Year Average Dividend Yield': info.get(
                 'fiveYearAvgDividendYield'
-            ),
+            ) if fiveYearAverageYield is None else fiveYearAverageYield,
             'Ex Dividend Date': exDividendDate
         },
         name=ticker
@@ -582,6 +608,7 @@ def formatFundamentals(
     percentageMetrics = {
         'Dividend Yield',
         'Trailing Annual Dividend Yield',
+        'Five Year Average Dividend Yield',
         'Payout Ratio',
         'Revenue Growth',
         'Earnings Growth',
@@ -668,7 +695,7 @@ def formatFundamentals(
 
         return value
 
-    formatted = fundamentals.copy()
+    formatted = fundamentals.copy().astype(object)
 
     if isinstance(formatted.index, pd.MultiIndex):
         for index in formatted.index:

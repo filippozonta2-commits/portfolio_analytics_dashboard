@@ -21,18 +21,63 @@ def getTicker(ticker: str) -> yf.Ticker:
     return yf.Ticker(validateTicker(ticker))
 
 
+def _fastInfoFallback(tickerObject: yf.Ticker) -> dict[str, Any]:
+    '''Return normalized fields from yfinance fast_info when available.'''
+    try:
+        fastInfo = dict(tickerObject.fast_info)
+    except Exception:
+        return {}
+
+    fieldMap = {
+        'currency': 'currency',
+        'day_high': 'dayHigh',
+        'day_low': 'dayLow',
+        'exchange': 'exchange',
+        'fifty_day_average': 'fiftyDayAverage',
+        'last_price': 'currentPrice',
+        'market_cap': 'marketCap',
+        'open': 'open',
+        'previous_close': 'previousClose',
+        'quote_type': 'quoteType',
+        'three_month_average_volume': 'averageVolume',
+        'two_hundred_day_average': 'twoHundredDayAverage',
+        'year_high': 'fiftyTwoWeekHigh',
+        'year_low': 'fiftyTwoWeekLow'
+    }
+
+    return {
+        destination: fastInfo.get(source)
+        for source, destination in fieldMap.items()
+        if fastInfo.get(source) is not None
+    }
+
+
 def companyInfo(ticker: str) -> dict[str, Any]:
     '''Return company information.'''
     ticker = validateTicker(ticker)
+    tickerObject = getTicker(ticker)
+    info: dict[str, Any] = {}
 
     try:
-        info = getTicker(ticker).info
-    except Exception as error:
-        raise RuntimeError(
-            f'Unable to retrieve company information for {ticker}.'
-        ) from error
+        downloadedInfo = tickerObject.get_info()
+        if downloadedInfo:
+            info.update(downloadedInfo)
+    except Exception:
+        try:
+            downloadedInfo = tickerObject.info
+            if downloadedInfo:
+                info.update(downloadedInfo)
+        except Exception:
+            pass
 
-    if not info:
+    for field, value in _fastInfoFallback(tickerObject).items():
+        if info.get(field) is None:
+            info[field] = value
+
+    info.setdefault('symbol', ticker)
+    info.setdefault('shortName', ticker)
+
+    if len(info) <= 2:
         raise ValueError(
             f'No company information available for {ticker}.'
         )

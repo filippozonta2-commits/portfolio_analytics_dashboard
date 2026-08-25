@@ -29,16 +29,20 @@ def test_yahoo_dividend_yields_are_normalized_before_formatting():
     metrics = dividendMetrics(
         'AAPL',
         info={
-            'dividendYield': 0.42,
-            'trailingAnnualDividendYield': 0.0041,
+            'dividendYield': 0.35,
+            'trailingAnnualDividendYield': 0.35,
+            'dividendRate': 1.08,
+            'trailingAnnualDividendRate': 1.08,
+            'currentPrice': 309.63,
+            'previousClose': 309.63,
             'fiveYearAvgDividendYield': 0.55
         }
     )
     frame = pd.DataFrame({'AAPL': metrics})
     formatted = formatFundamentals(frame)
 
-    assert formatted.loc['Dividend Yield', 'AAPL'] == '0.42%'
-    assert formatted.loc['Trailing Annual Dividend Yield', 'AAPL'] == '0.41%'
+    assert formatted.loc['Dividend Yield', 'AAPL'] == '0.35%'
+    assert formatted.loc['Trailing Annual Dividend Yield', 'AAPL'] == '0.35%'
     assert formatted.loc['Five Year Average Dividend Yield', 'AAPL'] == '0.55%'
 
 

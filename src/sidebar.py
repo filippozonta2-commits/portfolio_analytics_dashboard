@@ -45,7 +45,7 @@ def parseTickers(
 def validateTickers(
     tickers: list[str],
     minimumTickers: int = 1,
-    maximumTickers: int = 20
+    maximumTickers: int | None = None
 ) -> list[str]:
     '''Validate the selected ticker universe.'''
     if len(tickers) < minimumTickers:
@@ -53,7 +53,10 @@ def validateTickers(
             f'At least {minimumTickers} ticker is required.'
         )
 
-    if len(tickers) > maximumTickers:
+    if (
+        maximumTickers is not None
+        and len(tickers) > maximumTickers
+    ):
         raise ValueError(
             f'A maximum of {maximumTickers} tickers is allowed.'
         )
@@ -219,10 +222,64 @@ def weightsEditor(
     allowShortSelling: bool = False
 ) -> np.ndarray:
     '''Render an editable portfolio weights table.'''
-    if defaultWeights is None:
-        defaultWeights = equalWeights(
-            len(tickers)
+    stateKey = 'customWeightsByTicker'
+    versionKey = 'customWeightsEditorVersion'
+    warningKey = 'customWeightsWarning'
+
+    previousState = st.session_state.get(
+        stateKey,
+        {}
+    )
+    previousTickers = list(previousState)
+
+    if previousTickers != tickers:
+        retainedTickers = [
+            ticker
+            for ticker in tickers
+            if ticker in previousState
+        ]
+        addedTickers = [
+            ticker
+            for ticker in tickers
+            if ticker not in previousState
+        ]
+
+        if retainedTickers and not addedTickers:
+            retainedWeights = np.array([
+                previousState[ticker]
+                for ticker in retainedTickers
+            ], dtype=float)
+
+            if np.isclose(retainedWeights.sum(), 0):
+                redistributed = equalWeights(
+                    len(retainedTickers)
+                )
+            else:
+                redistributed = normalizeWeights(
+                    retainedWeights
+                )
+
+            previousState = dict(zip(
+                retainedTickers,
+                redistributed
+            ))
+        else:
+            redistributed = equalWeights(len(tickers))
+            previousState = dict(zip(
+                tickers,
+                redistributed
+            ))
+
+        st.session_state[stateKey] = previousState
+        st.session_state[versionKey] = (
+            st.session_state.get(versionKey, 0) + 1
         )
+
+    if defaultWeights is None:
+        defaultWeights = np.array([
+            previousState.get(ticker, 0.0)
+            for ticker in tickers
+        ], dtype=float)
 
     defaultWeights = validateWeights(
         defaultWeights,
@@ -256,7 +313,10 @@ def weightsEditor(
                 format='%.4f'
             )
         },
-        key='portfolioWeightsEditor'
+        key=(
+            'portfolioWeightsEditor_'
+            f'{st.session_state.get(versionKey, 0)}'
+        )
     )
 
     weights = editedWeights[
@@ -282,6 +342,32 @@ def weightsEditor(
         raise ValueError(
             'At least one portfolio weight must be positive.'
         )
+
+    enteredTotal = float(weights.sum())
+
+    if enteredTotal > 1.0 + 1e-9:
+        st.session_state[warningKey] = (
+            'The edit was reverted because portfolio weights '
+            f'would total {enteredTotal:.2%}, above 100%.'
+        )
+        st.session_state[stateKey] = {
+            ticker: float(defaultWeights[index])
+            for index, ticker in enumerate(tickers)
+        }
+        st.session_state[versionKey] = (
+            st.session_state.get(versionKey, 0) + 1
+        )
+        st.rerun()
+
+    st.session_state[stateKey] = {
+        ticker: float(weights[index])
+        for index, ticker in enumerate(tickers)
+    }
+
+    warning = st.session_state.pop(warningKey, None)
+
+    if warning:
+        st.sidebar.warning(warning)
 
     return weights
 

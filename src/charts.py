@@ -399,10 +399,21 @@ def qqPlot(
 
     from scipy import stats
 
-    theoretical, observed = stats.probplot(
-        returns.dropna(),
-        dist='norm'
-    )[0]
+    cleanReturns = returns.dropna().astype(float)
+
+    if len(cleanReturns) < 3:
+        raise ValueError(
+            'At least three returns are required for a Q-Q plot.'
+        )
+
+    (
+        (theoretical, observed),
+        (slope, intercept, correlation)
+    ) = stats.probplot(
+        cleanReturns,
+        dist='norm',
+        fit=True
+    )
 
     figure = go.Figure()
 
@@ -415,30 +426,37 @@ def qqPlot(
         )
     )
 
-    minimum = min(
-        theoretical.min(),
-        observed.min()
-    )
-
-    maximum = max(
-        theoretical.max(),
-        observed.max()
-    )
+    fitted = slope * theoretical + intercept
 
     figure.add_trace(
         go.Scatter(
-            x=[minimum, maximum],
-            y=[minimum, maximum],
+            x=theoretical,
+            y=fitted,
             mode='lines',
-            name='Normal'
+            name='Fitted Normal Line',
+            line={
+                'color': '#EF4444',
+                'dash': 'dash'
+            }
         )
+    )
+
+    figure.add_annotation(
+        x=0.02,
+        y=0.98,
+        xref='paper',
+        yref='paper',
+        text=f'R² = {correlation ** 2:.3f}',
+        showarrow=False,
+        xanchor='left',
+        yanchor='top'
     )
 
     return applyLayout(
         figure,
         title='Normal Q-Q Plot',
         xaxisTitle='Theoretical Quantiles',
-        yaxisTitle='Sample Quantiles'
+        yaxisTitle='Portfolio Return Quantiles'
     )
 
 def allocationPieChart(

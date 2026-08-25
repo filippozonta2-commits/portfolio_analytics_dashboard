@@ -1,37 +1,37 @@
-# Portfolio Analytics Dashboard
+# PortfolioLab
 
-An interactive Streamlit application for building, analyzing, optimizing, and simulating multi-asset portfolios.
+**Professional portfolio analytics, risk, optimization and scenario simulation in Streamlit.**
 
-## Features
+Built by **Filippo Zonta, MSc**.
 
-- Portfolio performance and risk metrics
-- Historical and parametric VaR/CVaR
-- Drawdown and rolling analytics
-- Benchmark comparison, alpha, beta, and capture ratios
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.40+-FF4B4B?logo=streamlit&logoColor=white)
+![CI](https://github.com/filippozonta2-commits/portfolio_analytics_dashboard/actions/workflows/quality.yml/badge.svg)
+
+## What it does
+
+- Executive portfolio overview with benchmark-relative performance
+- Annualized return, volatility, Sharpe, Sortino and Calmar ratios
+- Historical and parametric VaR/CVaR, drawdown and rolling analytics
+- Benchmark alpha, beta, active returns and capture ratios
 - Correlation and covariance analysis
-- Efficient frontier and constrained portfolio optimization
-- Bootstrap and distribution-based Monte Carlo simulation
-- Company fundamentals for supported securities
-- CSV exports for analysis outputs
+- Long-only efficient frontier and constrained portfolio optimization
+- Current-versus-optimized allocation comparison
+- Monte Carlo, GBM and historical-bootstrap simulations
+- Company and fund fundamentals with resilient data fallbacks
+- CSV exports and a complete in-app methodology reference
 
-## Project structure
+## Application structure
 
 ```text
-portfolio-analytics-dashboard/
+portfolio_analytics_dashboard/
 ├── app.py
 ├── requirements.txt
+├── requirements-dev.txt
 ├── .streamlit/config.toml
+├── .github/workflows/quality.yml
+├── tests/
 └── src/
-    ├── analytics.py
-    ├── benchmark.py
-    ├── charts.py
-    ├── data.py
-    ├── fundamentals.py
-    ├── metrics.py
-    ├── optimization.py
-    ├── sidebar.py
-    ├── simulation.py
-    └── utils.py
 ```
 
 ## Run locally
@@ -43,10 +43,29 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+## Quality checks
+
+```bash
+pip install -r requirements-dev.txt
+python -m compileall -q app.py src
+pytest -q
+```
+
+GitHub Actions runs these checks after every push and pull request to `main`.
+
+## Methodology
+
+Returns are computed from adjusted daily closing prices and annualized using a configurable trading-day convention. Portfolio optimization uses historical mean returns and the sample covariance matrix. The displayed efficient frontier contains only the upper efficient branch beginning at the global minimum-variance portfolio.
+
+Historical VaR/CVaR use empirical quantiles. Parametric VaR assumes normally distributed returns. Simulation outputs are scenario estimates based on historical inputs and do not model transaction costs, taxes, liquidity or market impact.
+
 ## Data sources
 
-Market and fundamental data are downloaded from Yahoo Finance. Treasury yields are retrieved from FRED, with a configurable fallback rate when the service is unavailable.
+- Yahoo Finance: prices and available security fundamentals
+- FRED: US Treasury yields used as the risk-free rate
 
-## Notes
+External data availability, accuracy and update frequency depend on those providers.
 
-This project is intended for educational and analytical purposes only. It is not investment advice, and model outputs should not be treated as forecasts or trading recommendations.
+## Disclaimer
+
+PortfolioLab is an educational analytics project. Its outputs are historical and model-dependent and do not constitute investment advice, a recommendation or a guarantee of future performance.

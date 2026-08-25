@@ -699,7 +699,20 @@ def renderOptimizationTab(
             optimizationResult,
             settings['tickers']
         )
-        renderDataFrame(summarySeries.to_frame(name='Value'))
+
+        formattedSummary = summarySeries.astype(object)
+
+        for metric in formattedSummary.index:
+            value = float(summarySeries[metric])
+
+            if metric == 'Sharpe Ratio':
+                formattedSummary[metric] = f'{value:.3f}'
+            else:
+                formattedSummary[metric] = f'{value:.2%}'
+
+        renderDataFrame(
+            formattedSummary.to_frame(name='Value')
+        )
 
     with allocationColumn:
         st.plotly_chart(

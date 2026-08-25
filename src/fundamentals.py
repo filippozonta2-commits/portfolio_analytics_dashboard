@@ -3,7 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
+import requests
 import yfinance as yf
+
+
+YAHOO_QUOTE_URLS = (
+    'https://query1.finance.yahoo.com/v7/finance/quote',
+    'https://query2.finance.yahoo.com/v7/finance/quote'
+)
 
 
 def validateTicker(ticker: str) -> str:
@@ -52,6 +59,68 @@ def _fastInfoFallback(tickerObject: yf.Ticker) -> dict[str, Any]:
     }
 
 
+def _quoteApiFallback(ticker: str) -> dict[str, Any]:
+    '''Retrieve core quote fields from Yahoo's lightweight quote endpoint.'''
+    fieldMap = {
+        'averageDailyVolume3Month': 'averageVolume',
+        'beta': 'beta',
+        'currency': 'currency',
+        'dividendYield': 'dividendYield',
+        'epsForward': 'forwardEps',
+        'epsTrailingTwelveMonths': 'trailingEps',
+        'exchange': 'exchange',
+        'fiftyDayAverage': 'fiftyDayAverage',
+        'fiftyTwoWeekHigh': 'fiftyTwoWeekHigh',
+        'fiftyTwoWeekLow': 'fiftyTwoWeekLow',
+        'forwardPE': 'forwardPE',
+        'fullExchangeName': 'exchange',
+        'longName': 'longName',
+        'marketCap': 'marketCap',
+        'priceToBook': 'priceToBook',
+        'quoteType': 'quoteType',
+        'regularMarketDayHigh': 'dayHigh',
+        'regularMarketDayLow': 'dayLow',
+        'regularMarketOpen': 'open',
+        'regularMarketPreviousClose': 'previousClose',
+        'regularMarketPrice': 'currentPrice',
+        'shortName': 'shortName',
+        'trailingAnnualDividendYield': 'trailingAnnualDividendYield',
+        'trailingPE': 'trailingPE',
+        'twoHundredDayAverage': 'twoHundredDayAverage'
+    }
+
+    headers = {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 PortfolioAnalyticsDashboard/1.0'
+    }
+
+    for url in YAHOO_QUOTE_URLS:
+        try:
+            response = requests.get(
+                url,
+                params={'symbols': ticker},
+                headers=headers,
+                timeout=10
+            )
+            response.raise_for_status()
+            results = response.json()['quoteResponse']['result']
+
+            if not results:
+                continue
+
+            quote = results[0]
+
+            return {
+                destination: quote.get(source)
+                for source, destination in fieldMap.items()
+                if quote.get(source) is not None
+            }
+        except (KeyError, TypeError, ValueError, requests.RequestException):
+            continue
+
+    return {}
+
+
 def companyInfo(ticker: str) -> dict[str, Any]:
     '''Return company information.'''
     ticker = validateTicker(ticker)
@@ -69,6 +138,10 @@ def companyInfo(ticker: str) -> dict[str, Any]:
                 info.update(downloadedInfo)
         except Exception:
             pass
+
+    for field, value in _quoteApiFallback(ticker).items():
+        if info.get(field) is None:
+            info[field] = value
 
     for field, value in _fastInfoFallback(tickerObject).items():
         if info.get(field) is None:

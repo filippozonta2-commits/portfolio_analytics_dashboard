@@ -834,7 +834,10 @@ def renderSimulationTab(
     )
 
 
-def renderFundamentalsTab(settings: dict) -> None:
+def renderFundamentalsTab(
+    settings: dict,
+    prices: pd.DataFrame
+) -> None:
     renderSectionTitle(
         'Fundamentals',
         'Company-level fundamental data from Yahoo Finance.'
@@ -854,7 +857,29 @@ def renderFundamentalsTab(settings: dict) -> None:
             fundamentals = multipleFundamentalsSummary(tickers)
         except Exception as error:
             renderEmptyState('Unable to load fundamentals', str(error))
-            return
+
+            fundamentals = pd.DataFrame()
+
+    priceRows = {
+        ('Market', 'Current Price'): prices.iloc[-1],
+        ('Market', 'Previous Close'): prices.iloc[-2],
+        ('Market', '52 Week Low'): prices.tail(252).min(),
+        ('Market', '52 Week High'): prices.tail(252).max(),
+        ('Market', '50 Day Average'): prices.tail(50).mean(),
+        ('Market', '200 Day Average'): prices.tail(200).mean()
+    }
+
+    priceFallback = pd.DataFrame(priceRows).T
+    priceFallback.index = pd.MultiIndex.from_tuples(
+        priceFallback.index,
+        names=['Section', 'Metric']
+    )
+    priceFallback = priceFallback.reindex(columns=tickers)
+
+    if fundamentals.empty:
+        fundamentals = priceFallback
+    else:
+        fundamentals = fundamentals.combine_first(priceFallback)
 
     if fundamentals.empty:
         renderEmptyState(
@@ -1051,7 +1076,7 @@ def main() -> None:
         renderSimulationTab(portfolioReturnSeries, settings)
 
     with fundamentalsTab:
-        renderFundamentalsTab(settings)
+        renderFundamentalsTab(settings, prices)
 
     with rawDataTab:
         renderRawDataTab(prices, returns, portfolioReturnSeries)

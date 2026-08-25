@@ -687,6 +687,16 @@ def optimizationWeights(
             'assetNames length must match optimized weights.'
         )
 
+    weights[np.abs(weights) < 1e-10] = 0.0
+
+    totalWeight = weights.sum()
+
+    if (
+        not np.isclose(totalWeight, 0)
+        and np.isclose(totalWeight, 1.0, atol=1e-8)
+    ):
+        weights = weights / totalWeight
+
     return pd.Series(
         weights,
         index=assetNames,

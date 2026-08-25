@@ -275,7 +275,7 @@ def getData(
 
 def getRiskFreeRate(
     mode: Literal['automatic', 'manual'] = 'automatic',
-    method: Literal['match', '3m', '10y'] = 'match',
+    method: str = 'match',
     horizonDays: int = 252,
     manualRate: float | None = None,
     fallbackRate: float = 0.04
@@ -314,18 +314,33 @@ def getRiskFreeRate(
         treasury = _matchTreasurySeries(horizonDays)
         methodName = 'Match Simulation Horizon'
 
-    elif method == '3m':
-        treasury = TREASURY_SERIES['3M']
-        methodName = '3-Month Treasury'
-
-    elif method == '10y':
-        treasury = TREASURY_SERIES['10Y']
-        methodName = '10-Year Treasury'
-
     else:
-        raise ValueError(
-            'method must be match, 3m or 10y.'
-        )
+        maturityMap = {
+            '1m': '1M',
+            '3m': '3M',
+            '6m': '6M',
+            '1y': '1Y',
+            '2y': '2Y',
+            '3y': '3Y',
+            '5y': '5Y',
+            '7y': '7Y',
+            '10y': '10Y',
+            '20y': '20Y',
+            '30y': '30Y'
+        }
+
+        if method not in maturityMap:
+            validMethods = ', '.join(
+                ['match', *maturityMap]
+            )
+            raise ValueError(
+                f'Unsupported Treasury selection. Use: {validMethods}.'
+            )
+
+        treasury = TREASURY_SERIES[
+            maturityMap[method]
+        ]
+        methodName = treasury['name']
 
     try:
         rate, observationDate = _downloadTreasuryRate(

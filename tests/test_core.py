@@ -46,6 +46,21 @@ def test_yahoo_dividend_yields_are_normalized_before_formatting():
     assert formatted.loc['Five Year Average Dividend Yield', 'AAPL'] == '0.55%'
 
 
+@pytest.mark.parametrize('raw_yield', [35.0, 0.35, 0.0035])
+def test_yahoo_dividend_yield_scales_produce_same_result(raw_yield):
+    metrics = dividendMetrics(
+        'AAPL',
+        info={
+            'dividendYield': raw_yield,
+            'trailingAnnualDividendYield': raw_yield
+        }
+    )
+    formatted = formatFundamentals(pd.DataFrame({'AAPL': metrics}))
+
+    assert formatted.loc['Dividend Yield', 'AAPL'] == '0.35%'
+    assert formatted.loc['Trailing Annual Dividend Yield', 'AAPL'] == '0.35%'
+
+
 def test_efficient_frontier_is_upper_and_monotonic():
     means = pd.Series([0.00025, 0.00055, 0.00090], index=['A', 'B', 'C'])
     covariance = pd.DataFrame(

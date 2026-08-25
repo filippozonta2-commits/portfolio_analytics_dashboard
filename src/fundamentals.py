@@ -344,12 +344,14 @@ def dividendMetrics(
     # Calculate yields from cash dividends and prices whenever possible.
     # This avoids Yahoo's inconsistent yield units across API endpoints.
     if dividendRate is not None and currentPrice not in (None, 0):
-        dividendYield = float(dividendRate) / float(currentPrice)
+        dividendYield = normalizeYield(
+            float(dividendRate) / float(currentPrice)
+        )
     else:
         dividendYield = normalizeYield(info.get('dividendYield'))
 
     if trailingDividendRate is not None and previousClose not in (None, 0):
-        trailingYield = (
+        trailingYield = normalizeYield(
             float(trailingDividendRate) / float(previousClose)
         )
     else:

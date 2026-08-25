@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.fundamentals import dividendMetrics, formatFundamentals
 from src.sidebar import normalizeWeights, parseTickers, validateCustomWeightTotal, validateTickers
 from src.simulation import efficientFrontier, minimumVariancePortfolio, optimizationWeights
 
@@ -22,6 +23,23 @@ def test_optimizer_residual_weights_are_cleaned():
     weights = optimizationWeights(result, ['A', 'B', 'C'])
     assert weights['B'] == 0
     assert np.isclose(weights.sum(), 1.0)
+
+
+def test_yahoo_dividend_yields_are_normalized_before_formatting():
+    metrics = dividendMetrics(
+        'AAPL',
+        info={
+            'dividendYield': 0.42,
+            'trailingAnnualDividendYield': 0.0041,
+            'fiveYearAvgDividendYield': 0.55
+        }
+    )
+    frame = pd.DataFrame({'AAPL': metrics})
+    formatted = formatFundamentals(frame)
+
+    assert formatted.loc['Dividend Yield', 'AAPL'] == '0.42%'
+    assert formatted.loc['Trailing Annual Dividend Yield', 'AAPL'] == '0.41%'
+    assert formatted.loc['Five Year Average Dividend Yield', 'AAPL'] == '0.55%'
 
 
 def test_efficient_frontier_is_upper_and_monotonic():

@@ -449,8 +449,12 @@ def renderRiskFreeSettings() -> dict[str, Any]:
             'Treasury selection',
             options=[
                 'Match investment horizon',
+                'Latest 3-month Treasury',
                 'Latest 1-year Treasury',
-                'Latest 10-year Treasury'
+                'Latest 2-year Treasury',
+                'Latest 5-year Treasury',
+                'Latest 10-year Treasury',
+                'Latest 30-year Treasury'
             ],
             index=0,
             key='riskFreeMethodLabel'
@@ -458,8 +462,12 @@ def renderRiskFreeSettings() -> dict[str, Any]:
 
         methodMap = {
             'Match investment horizon': 'match',
-            'Latest 1-year Treasury': 'oneYear',
-            'Latest 10-year Treasury': 'tenYear'
+            'Latest 3-month Treasury': '3m',
+            'Latest 1-year Treasury': '1y',
+            'Latest 2-year Treasury': '2y',
+            'Latest 5-year Treasury': '5y',
+            'Latest 10-year Treasury': '10y',
+            'Latest 30-year Treasury': '30y'
         }
 
         riskFreeMethod = methodMap[
@@ -968,5 +976,4 @@ def renderSidebar() -> dict[str, Any]:
     return validateSidebarSettings(
         settings
     )
-
 

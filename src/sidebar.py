@@ -178,6 +178,26 @@ def validateWeights(
     return normalizeWeights(weights)
 
 
+def validateCustomWeightTotal(
+    weights: np.ndarray,
+    maximumTotal: float = 1.0
+) -> float:
+    '''Validate and return the total entered custom portfolio weight.'''
+    weights = np.asarray(weights, dtype=float)
+    enteredTotal = float(weights.sum())
+
+    if enteredTotal > maximumTotal + 1e-9:
+        excess = enteredTotal - maximumTotal
+        raise ValueError(
+            'Portfolio weights exceed 100%. '
+            f'Entered total: {enteredTotal:.2%} '
+            f'(over by {excess:.2%}). '
+            'Reduce one or more weights before continuing.'
+        )
+
+    return enteredTotal
+
+
 def equalWeights(
     tickerCount: int
 ) -> np.ndarray:
@@ -245,11 +265,25 @@ def weightsEditor(
         dtype=float
     )
 
-    return validateWeights(
-        weights,
-        tickerCount=len(tickers),
-        allowShortSelling=allowShortSelling
-    )
+    if not np.isfinite(weights).all():
+        raise ValueError(
+            'Portfolio weights must contain finite values.'
+        )
+
+    if (
+        not allowShortSelling
+        and np.any(weights < 0)
+    ):
+        raise ValueError(
+            'Negative weights require short selling to be enabled.'
+        )
+
+    if np.isclose(weights.sum(), 0):
+        raise ValueError(
+            'At least one portfolio weight must be positive.'
+        )
+
+    return weights
 
 
 def renderUniverseSettings() -> dict[str, Any]:
@@ -357,9 +391,12 @@ def renderPortfolioSettings(
             allowShortSelling=allowShortSelling
         )
 
+        enteredTotal = validateCustomWeightTotal(weights)
+
         st.sidebar.caption(
-            f'Normalized total: {weights.sum():.2%}'
+            f'Entered total: {enteredTotal:.2%}'
         )
+
 
     rebalanceFrequency = st.sidebar.selectbox(
         'Rebalancing frequency',
@@ -976,4 +1013,3 @@ def renderSidebar() -> dict[str, Any]:
     return validateSidebarSettings(
         settings
     )
-

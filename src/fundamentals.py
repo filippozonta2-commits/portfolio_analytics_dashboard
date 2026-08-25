@@ -327,34 +327,40 @@ def dividendMetrics(
     trailingDividendRate = info.get('trailingAnnualDividendRate')
     previousClose = info.get('previousClose')
 
+    def normalizeYield(value: Any) -> float | None:
+        '''Normalize Yahoo yield ratios, percent values, or basis points.'''
+        if value is None:
+            return None
+
+        normalized = float(value)
+
+        # Yahoo has returned the same yield as 0.0035, 0.35, and 35
+        # across different endpoints/releases. Convert to a decimal ratio.
+        while abs(normalized) > 0.20:
+            normalized /= 100
+
+        return normalized
+
     # Calculate yields from cash dividends and prices whenever possible.
     # This avoids Yahoo's inconsistent yield units across API endpoints.
     if dividendRate is not None and currentPrice not in (None, 0):
         dividendYield = float(dividendRate) / float(currentPrice)
     else:
-        rawDividendYield = info.get('dividendYield')
-        dividendYield = (
-            float(rawDividendYield) / 100
-            if rawDividendYield is not None
-            else None
-        )
+        dividendYield = normalizeYield(info.get('dividendYield'))
 
     if trailingDividendRate is not None and previousClose not in (None, 0):
         trailingYield = (
             float(trailingDividendRate) / float(previousClose)
         )
     else:
-        rawTrailingYield = info.get('trailingAnnualDividendYield')
-        trailingYield = (
-            float(rawTrailingYield) / 100
-            if rawTrailingYield is not None
-            else None
+        trailingYield = normalizeYield(
+            info.get('trailingAnnualDividendYield')
         )
 
     fiveYearAverageYield = info.get('fiveYearAvgDividendYield')
 
     if fiveYearAverageYield is not None:
-        fiveYearAverageYield = float(fiveYearAverageYield) / 100
+        fiveYearAverageYield = normalizeYield(fiveYearAverageYield)
 
     exDividendDate = info.get('exDividendDate')
 

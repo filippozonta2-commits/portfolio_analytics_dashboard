@@ -512,13 +512,18 @@ def efficientFrontier(
         covarianceMatrix
     )
 
-    assetAnnualReturns = (
-        meanReturns
-        * tradingDays
+    assetAnnualReturns = meanReturns * tradingDays
+
+    minimumVariance = minimumVariancePortfolio(
+        meanReturns=meanReturns,
+        covarianceMatrix=covarianceMatrix,
+        minimumWeight=minimumWeight,
+        maximumWeight=maximumWeight,
+        tradingDays=tradingDays
     )
 
     minimumTarget = float(
-        assetAnnualReturns.min()
+        minimumVariance['expectedReturn']
     )
 
     maximumTarget = float(
@@ -558,9 +563,30 @@ def efficientFrontier(
             'Unable to compute the efficient frontier.'
         )
 
-    return pd.DataFrame(
-        frontier
+    frontierData = pd.DataFrame(frontier)
+    frontierData = frontierData.sort_values(
+        'Expected Return'
+    ).drop_duplicates(
+        subset=['Expected Return'],
+        keep='first'
     )
+
+    efficientRows = []
+    previousVolatility = -np.inf
+
+    for _, row in frontierData.iterrows():
+        volatility = float(row['Volatility'])
+
+        if volatility > previousVolatility + 1e-10:
+            efficientRows.append(row)
+            previousVolatility = volatility
+
+    if len(efficientRows) < 2:
+        raise RuntimeError(
+            'Unable to compute enough efficient-frontier points.'
+        )
+
+    return pd.DataFrame(efficientRows).reset_index(drop=True)
 
 
 def randomPortfolios(

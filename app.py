@@ -72,6 +72,9 @@ from src.utils import (
 )
 
 
+BUILD_VERSION = 'runtime-fix-2026-08-25.1'
+
+
 st.set_page_config(
     page_title='PortfolioLab | Portfolio Analytics',
     page_icon='📊',
@@ -1354,6 +1357,7 @@ def main() -> None:
         """,
         unsafe_allow_html=True
     )
+    st.caption(f'Build: {BUILD_VERSION}')
 
 
 if __name__ == '__main__':

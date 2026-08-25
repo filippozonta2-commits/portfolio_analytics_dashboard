@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -22,4 +24,4 @@ jobs:
       - name: Compile source
         run: python -m compileall -q app.py src
       - name: Run tests
-        run: pytest -q
+        run: python -m pytest -q

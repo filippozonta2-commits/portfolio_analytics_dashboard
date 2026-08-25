@@ -73,9 +73,38 @@ from src.utils import (
 
 
 st.set_page_config(
-    page_title='Portfolio Analytics Dashboard',
+    page_title='PortfolioLab | Portfolio Analytics',
     page_icon='📊',
-    layout='wide'
+    layout='wide',
+    initial_sidebar_state='expanded'
+)
+
+st.markdown(
+    '''
+    <style>
+        .block-container {padding-top: 1.8rem; padding-bottom: 2rem;}
+        [data-testid="stMetric"] {
+            background: #F8FAFC;
+            border: 1px solid #E2E8F0;
+            border-radius: 12px;
+            padding: 14px 16px;
+        }
+        [data-testid="stMetricLabel"] {color: #475569;}
+        div[data-testid="stDataFrame"] {border-radius: 10px; overflow: hidden;}
+        .portfolio-subtitle {color: #64748B; margin-top: -0.6rem;}
+        .portfolio-badge {
+            display: inline-block;
+            background: #EFF6FF;
+            color: #1D4ED8;
+            border: 1px solid #BFDBFE;
+            border-radius: 999px;
+            padding: 0.2rem 0.65rem;
+            margin-right: 0.35rem;
+            font-size: 0.78rem;
+        }
+    </style>
+    ''',
+    unsafe_allow_html=True
 )
 
 
@@ -255,6 +284,8 @@ def renderOverviewTab(
     returns: pd.DataFrame,
     weights: pd.Series,
     portfolioReturnSeries: pd.Series,
+    benchmarkReturnSeries: pd.Series | None,
+    riskFreeRate: float,
     settings: dict
 ) -> None:
     renderSectionTitle(
@@ -269,10 +300,42 @@ def renderOverviewTab(
         (1 + portfolioReturnSeries).prod() - 1
     )
 
+    benchmarkDelta = None
+    benchmarkTotalReturn = None
+
+    if benchmarkReturnSeries is not None:
+        aligned = pd.concat(
+            [
+                portfolioReturnSeries.rename('Portfolio'),
+                benchmarkReturnSeries.rename('Benchmark')
+            ],
+            axis=1,
+            join='inner'
+        ).dropna()
+
+        if not aligned.empty:
+            benchmarkTotalReturn = float(
+                (1 + aligned['Benchmark']).prod() - 1
+            )
+            portfolioAlignedReturn = float(
+                (1 + aligned['Portfolio']).prod() - 1
+            )
+            benchmarkDelta = formatPercent(
+                portfolioAlignedReturn - benchmarkTotalReturn,
+                decimals=decimals
+            )
+
     renderMetricRow([
         {
             'label': 'Total Return',
-            'value': formatPercent(totalReturn, decimals=decimals)
+            'value': formatPercent(totalReturn, decimals=decimals),
+            'delta': benchmarkDelta,
+            'help': (
+                'Difference versus the selected benchmark over the '
+                'common observation period.'
+                if benchmarkDelta is not None
+                else 'Cumulative return over the selected period.'
+            )
         },
         {
             'label': 'Annual Return',
@@ -296,7 +359,7 @@ def renderOverviewTab(
         },
         {
             'label': 'Sharpe Ratio',
-            'value': f'{sharpeRatio(portfolioReturnSeries, tradingDays=tradingDays):.2f}'
+            'value': f'{sharpeRatio(portfolioReturnSeries, riskFreeRate=riskFreeRate, tradingDays=tradingDays):.2f}'
         },
         {
             'label': 'Max Drawdown',
@@ -309,13 +372,29 @@ def renderOverviewTab(
 
     st.divider()
 
+    st.caption(
+        f'Data through {prices.index.max():%B %d, %Y} · '
+        f'{len(prices):,} aligned trading-day observations'
+    )
+
     leftColumn, rightColumn = st.columns([2, 1])
 
     with leftColumn:
-        normalizedChart = charts.normalizedPricesChart(
-            normalizePrices(prices)
-        )
-        st.plotly_chart(normalizedChart, use_container_width=True)
+        if benchmarkReturnSeries is not None:
+            st.plotly_chart(
+                charts.cumulativeBenchmarkComparisonChart(
+                    portfolioReturnSeries,
+                    benchmarkReturnSeries
+                ),
+                use_container_width=True
+            )
+        else:
+            cumulativeChart = charts.cumulativeReturnsChart(
+                cumulativeReturns(
+                    portfolioReturnSeries
+                ).rename('Portfolio')
+            )
+            st.plotly_chart(cumulativeChart, use_container_width=True)
 
     with rightColumn:
         allocationChart = charts.allocationPieChart(
@@ -324,10 +403,11 @@ def renderOverviewTab(
         )
         st.plotly_chart(allocationChart, use_container_width=True)
 
-    cumulativeChart = charts.cumulativeReturnsChart(
-        cumulativeReturns(portfolioReturnSeries).rename('Portfolio')
-    )
-    st.plotly_chart(cumulativeChart, use_container_width=True)
+    with st.expander('Asset-level performance', expanded=False):
+        normalizedChart = charts.normalizedPricesChart(
+            normalizePrices(prices)
+        )
+        st.plotly_chart(normalizedChart, use_container_width=True)
 
     if settings['showRawData']:
         renderSectionTitle('Asset Summary')
@@ -695,23 +775,62 @@ def renderOptimizationTab(
     summaryColumn, allocationColumn = st.columns([2, 1])
 
     with summaryColumn:
-        summarySeries = optimizationSummary(
-            optimizationResult,
-            settings['tickers']
+        renderMetricRow([
+            {
+                'label': 'Expected Return',
+                'value': f'{optimizationResult["expectedReturn"]:.2%}'
+            },
+            {
+                'label': 'Volatility',
+                'value': f'{optimizationResult["volatility"]:.2%}'
+            },
+            {
+                'label': 'Sharpe Ratio',
+                'value': f'{optimizationResult["sharpeRatio"]:.3f}'
+            }
+        ])
+
+        allocationComparison = pd.DataFrame({
+            'Asset': settings['tickers'],
+            'Current Weight': currentWeights.reindex(
+                settings['tickers']
+            ).values,
+            'Optimized Weight': optimizedWeights.reindex(
+                settings['tickers']
+            ).values
+        })
+        allocationComparison['Change'] = (
+            allocationComparison['Optimized Weight']
+            - allocationComparison['Current Weight']
+        )
+        percentageColumns = [
+            'Current Weight',
+            'Optimized Weight',
+            'Change'
+        ]
+        allocationComparison[percentageColumns] = (
+            allocationComparison[percentageColumns] * 100
         )
 
-        formattedSummary = summarySeries.astype(object)
-
-        for metric in formattedSummary.index:
-            value = float(summarySeries[metric])
-
-            if metric == 'Sharpe Ratio':
-                formattedSummary[metric] = f'{value:.3f}'
-            else:
-                formattedSummary[metric] = f'{value:.2%}'
-
-        renderDataFrame(
-            formattedSummary.to_frame(name='Value')
+        st.dataframe(
+            allocationComparison,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                'Asset': st.column_config.TextColumn('Asset'),
+                'Current Weight': st.column_config.NumberColumn(
+                    'Current',
+                    format='%.2f%%'
+                ),
+                'Optimized Weight': st.column_config.NumberColumn(
+                    'Optimized',
+                    format='%.2f%%'
+                ),
+                'Change': st.column_config.NumberColumn(
+                    'Change',
+                    format='%+.2f%%'
+                )
+            }
         )
 
     with allocationColumn:
@@ -901,14 +1020,128 @@ def renderFundamentalsTab(
         )
         return
 
-    formatted = formatFundamentals(fundamentals)
-    renderDataFrame(formatted, height=600)
+    selectedTicker = st.selectbox(
+        'Company or fund',
+        options=tickers,
+        key='fundamentalSelectedTicker'
+    )
+
+    selectedFundamentals = fundamentals[[selectedTicker]]
+    formatted = formatFundamentals(selectedFundamentals)
+
+    quoteType = selectedFundamentals.loc[
+        ('Company', 'Quote Type'),
+        selectedTicker
+    ] if ('Company', 'Quote Type') in selectedFundamentals.index else None
+
+    if str(quoteType).upper() in {'ETF', 'MUTUALFUND'}:
+        st.info(
+            'This instrument is a fund. Company-specific accounting '
+            'metrics may not apply and can appear as N/A.'
+        )
+
+    headlineMetrics = [
+        ('Market', 'Current Price', 'Price'),
+        ('Valuation', 'Market Cap', 'Market Cap'),
+        ('Valuation', 'Trailing P/E', 'Trailing P/E'),
+        ('Growth', 'Earnings Per Share', 'EPS'),
+        ('Dividends', 'Dividend Yield', 'Dividend Yield')
+    ]
+
+    metricCards = []
+
+    for section, metric, label in headlineMetrics:
+        index = (section, metric)
+        value = (
+            formatted.loc[index, selectedTicker]
+            if index in formatted.index
+            else 'N/A'
+        )
+        metricCards.append({'label': label, 'value': str(value)})
+
+    renderMetricRow(metricCards)
+
+    sections = [
+        'Company',
+        'Market',
+        'Valuation',
+        'Growth',
+        'Profitability',
+        'Financial Health',
+        'Dividends',
+        'Analysts'
+    ]
+    sectionTabs = st.tabs(sections)
+
+    for section, sectionTab in zip(sections, sectionTabs):
+        with sectionTab:
+            if section not in formatted.index.get_level_values(0):
+                renderEmptyState(
+                    'No data available',
+                    f'{section} data is unavailable for {selectedTicker}.'
+                )
+                continue
+
+            sectionData = formatted.xs(
+                section,
+                level='Section'
+            ).rename(columns={selectedTicker: 'Value'})
+            renderDataFrame(sectionData, hideIndex=False)
 
     csvDownloadButton(
         fundamentals,
         fileName='fundamentals.csv',
         label='Download Fundamentals CSV',
         key='fundamentalsDownload'
+    )
+
+
+def renderMethodologyTab(
+    settings: dict,
+    riskFreeInfo: dict
+) -> None:
+    renderSectionTitle(
+        'Methodology and Model Notes',
+        'Definitions, assumptions and limitations behind the analysis.'
+    )
+
+    st.markdown(
+        f'''
+        ### Performance and risk
+
+        - Returns use adjusted daily closing prices and are annualized with
+          **{settings['annualizationFactor']} trading days**.
+        - Volatility is the annualized standard deviation of daily returns.
+        - Sharpe and Sortino ratios use an annual risk-free rate of
+          **{riskFreeInfo['rate']:.2%}** from **{riskFreeInfo['source']}**
+          ({riskFreeInfo['maturity']}).
+        - Maximum drawdown measures the largest peak-to-trough decline.
+        - Historical VaR/CVaR use the empirical return distribution at a
+          **{settings['confidenceLevel']:.1%} confidence level**.
+
+        ### Optimization
+
+        - The efficient frontier is estimated from historical mean returns
+          and the sample covariance matrix.
+        - Optimization is long-only unless short selling is explicitly
+          enabled. Weights sum to 100%.
+        - The maximum-Sharpe portfolio is sensitive to expected-return
+          estimates and should be interpreted as a scenario, not a forecast.
+
+        ### Simulation
+
+        - Monte Carlo, Gaussian GBM and historical bootstrap paths are
+          available over a **{settings['horizonDays']}-trading-day horizon**.
+        - Simulations assume the historical sample is informative about the
+          future and do not model taxes, fees, liquidity or market impact.
+
+        ### Data and limitations
+
+        Market and company data come from Yahoo Finance; Treasury yields come
+        from FRED. Availability and update times depend on those providers.
+        Results are historical, model-dependent and provided for educational
+        purposes only—not as investment advice.
+        '''
     )
 
 
@@ -956,9 +1189,18 @@ def renderRawDataTab(
 # --------------------------------------------------------------------------
 
 def main() -> None:
-    st.title('📊 Portfolio Analytics Dashboard')
-    st.caption(
-        'Build, analyze, optimize and simulate a multi-asset portfolio.'
+    st.title('PortfolioLab')
+    st.markdown(
+        '<p class="portfolio-subtitle">Portfolio analytics, risk, '
+        'optimization and scenario simulation.</p>',
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        '<span class="portfolio-badge">Python</span>'
+        '<span class="portfolio-badge">Streamlit</span>'
+        '<span class="portfolio-badge">SciPy</span>'
+        '<span class="portfolio-badge">Plotly</span>',
+        unsafe_allow_html=True
     )
 
     try:
@@ -1028,6 +1270,7 @@ def main() -> None:
         'Optimization',
         'Simulation',
         'Fundamentals',
+        'Methodology',
         'Raw Data'
     ]
 
@@ -1039,6 +1282,7 @@ def main() -> None:
         optimizationTab,
         simulationTab,
         fundamentalsTab,
+        methodologyTab,
         rawDataTab
     ) = st.tabs(tabNames)
 
@@ -1048,6 +1292,8 @@ def main() -> None:
             returns,
             weights,
             portfolioReturnSeries,
+            benchmarkReturnSeries,
+            riskFreeRate,
             settings
         )
 
@@ -1090,6 +1336,9 @@ def main() -> None:
 
     with fundamentalsTab:
         renderFundamentalsTab(settings, prices)
+
+    with methodologyTab:
+        renderMethodologyTab(settings, riskFreeInfo)
 
     with rawDataTab:
         renderRawDataTab(prices, returns, portfolioReturnSeries)

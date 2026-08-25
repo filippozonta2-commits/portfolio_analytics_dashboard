@@ -1005,7 +1005,7 @@ def efficientFrontierChart(
             )
 
     frontier = frontier.sort_values(
-        'Volatility'
+        'Expected Return'
     )
 
     figure.add_trace(

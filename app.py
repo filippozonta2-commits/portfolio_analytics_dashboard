@@ -1094,6 +1094,16 @@ def main() -> None:
     with rawDataTab:
         renderRawDataTab(prices, returns, portfolioReturnSeries)
 
+    st.divider()
+    st.markdown(
+        """
+        <div style="text-align: center; color: #6B7280; padding: 0.5rem 0 1rem;">
+            Built by <strong>Filippo Zonta, MSc</strong>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 
 if __name__ == '__main__':
     main()

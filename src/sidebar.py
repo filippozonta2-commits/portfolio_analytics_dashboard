@@ -23,6 +23,56 @@ DEFAULT_SIMULATIONS = 5000
 DEFAULT_HORIZON_DAYS = 252
 DEFAULT_INITIAL_VALUE = 10000.0
 
+PORTFOLIO_PRESETS = {
+    'Balanced 60/40': {
+        'tickers': ['SPY', 'BND'],
+        'weights': [0.60, 0.40],
+        'method': 'Custom Weight'
+    },
+    'US Tech Leaders': {
+        'tickers': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA'],
+        'weights': None,
+        'method': 'Equal Weight'
+    },
+    'Diversified ETFs': {
+        'tickers': ['VTI', 'VEA', 'VWO', 'BND'],
+        'weights': [0.50, 0.20, 0.10, 0.20],
+        'method': 'Custom Weight'
+    }
+}
+
+
+def applyPortfolioPreset(presetName: str) -> None:
+    '''Apply a named portfolio preset to session state.'''
+    preset = PORTFOLIO_PRESETS[presetName]
+    tickers = preset['tickers']
+
+    st.session_state['tickerInput'] = ', '.join(tickers)
+    st.session_state['weightingMethod'] = preset['method']
+
+    weights = preset['weights']
+
+    if weights is None:
+        weights = equalWeights(len(tickers))
+
+    st.session_state['customWeightsByTicker'] = dict(zip(
+        tickers,
+        weights
+    ))
+    st.session_state['customWeightsEditorVersion'] = (
+        st.session_state.get('customWeightsEditorVersion', 0) + 1
+    )
+
+
+def resetPortfolioSettings() -> None:
+    '''Restore the primary portfolio controls to their defaults.'''
+    st.session_state['tickerInput'] = ', '.join(DEFAULT_TICKERS)
+    st.session_state['weightingMethod'] = 'Equal Weight'
+    st.session_state['customWeightsByTicker'] = {}
+    st.session_state['customWeightsEditorVersion'] = (
+        st.session_state.get('customWeightsEditorVersion', 0) + 1
+    )
+
 
 def parseTickers(
     tickerInput: str
@@ -378,10 +428,38 @@ def renderUniverseSettings() -> dict[str, Any]:
         'Portfolio Universe'
     )
 
+    presetName = st.sidebar.selectbox(
+        'Portfolio preset',
+        options=list(PORTFOLIO_PRESETS),
+        help='Load a ready-made allocation, then customize it.',
+        key='portfolioPreset'
+    )
+
+    applyColumn, resetColumn = st.sidebar.columns(2)
+
+    if applyColumn.button(
+        'Apply preset',
+        use_container_width=True,
+        key='applyPortfolioPreset'
+    ):
+        applyPortfolioPreset(presetName)
+        st.rerun()
+
+    if resetColumn.button(
+        'Reset',
+        use_container_width=True,
+        key='resetPortfolioSettings'
+    ):
+        resetPortfolioSettings()
+        st.rerun()
+
     tickerInput = st.sidebar.text_area(
         'Ticker symbols',
         value=', '.join(DEFAULT_TICKERS),
-        help='Enter ticker symbols separated by commas.',
+        help=(
+            'Enter any number of Yahoo Finance ticker symbols, '
+            'separated by commas.'
+        ),
         key='tickerInput'
     )
 
@@ -455,6 +533,10 @@ def renderPortfolioSettings(
             'Maximum Sharpe'
         ],
         index=0,
+        help=(
+            'Choose equal/custom weights or construct the portfolio '
+            'from an optimization objective.'
+        ),
         key='weightingMethod'
     )
 
@@ -1014,13 +1096,15 @@ def validateSidebarSettings(
 def renderSidebar() -> dict[str, Any]:
     '''Render the full application sidebar.'''
     st.sidebar.title(
-        'Portfolio Settings'
+        'PortfolioLab Controls'
     )
 
     st.sidebar.caption(
         'Configure assets, portfolio construction, '
         'risk analysis and simulations.'
     )
+
+    st.sidebar.caption('Built by Filippo Zonta, MSc')
 
     with st.sidebar.expander(
         'Data and Universe',

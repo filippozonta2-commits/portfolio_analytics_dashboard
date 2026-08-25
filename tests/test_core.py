@@ -61,6 +61,22 @@ def test_yahoo_dividend_yield_scales_produce_same_result(raw_yield):
     assert formatted.loc['Trailing Annual Dividend Yield', 'AAPL'] == '0.35%'
 
 
+def test_scaled_dividend_rate_cannot_create_a_35_percent_yield():
+    metrics = dividendMetrics(
+        'AAPL',
+        info={
+            'dividendRate': 108.0,
+            'trailingAnnualDividendRate': 108.0,
+            'currentPrice': 309.63,
+            'previousClose': 309.63
+        }
+    )
+    formatted = formatFundamentals(pd.DataFrame({'AAPL': metrics}))
+
+    assert formatted.loc['Dividend Yield', 'AAPL'] == '0.35%'
+    assert formatted.loc['Trailing Annual Dividend Yield', 'AAPL'] == '0.35%'
+
+
 def test_efficient_frontier_is_upper_and_monotonic():
     means = pd.Series([0.00025, 0.00055, 0.00090], index=['A', 'B', 'C'])
     covariance = pd.DataFrame(

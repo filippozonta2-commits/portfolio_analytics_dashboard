@@ -386,7 +386,8 @@ def renderOverviewTab(
                     portfolioReturnSeries,
                     benchmarkReturnSeries
                 ),
-                use_container_width=True
+                use_container_width=True,
+                key='overview_cumulative_benchmark_chart'
             )
         else:
             cumulativeChart = charts.cumulativeReturnsChart(
@@ -571,7 +572,8 @@ def renderBenchmarkTab(
             portfolioReturnSeries,
             benchmarkReturnSeries
         ),
-        use_container_width=True
+        use_container_width=True,
+        key='benchmark_cumulative_comparison_chart'
     )
 
     relativePerformance = computeRelativePerformance(

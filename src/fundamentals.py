@@ -322,26 +322,34 @@ def dividendMetrics(
     ticker = validateTicker(ticker)
     info = companyInfo(ticker) if info is None else info
 
-    dividendYield = info.get('dividendYield')
-    trailingYield = info.get('trailingAnnualDividendYield')
+    dividendRate = info.get('dividendRate')
+    currentPrice = info.get('currentPrice')
+    trailingDividendRate = info.get('trailingAnnualDividendRate')
+    previousClose = info.get('previousClose')
 
-    # Yahoo currently mixes two conventions across endpoints: some fields
-    # arrive as decimal ratios (0.004 = 0.4%), while dividendYield and the
-    # five-year average may arrive in percentage points (0.4 = 0.4%).
-    # Prefer the trailing yield as a scale reference when it is available.
-    if dividendYield is not None:
-        dividendYield = float(dividendYield)
+    # Calculate yields from cash dividends and prices whenever possible.
+    # This avoids Yahoo's inconsistent yield units across API endpoints.
+    if dividendRate is not None and currentPrice not in (None, 0):
+        dividendYield = float(dividendRate) / float(currentPrice)
+    else:
+        rawDividendYield = info.get('dividendYield')
+        dividendYield = (
+            float(rawDividendYield) / 100
+            if rawDividendYield is not None
+            else None
+        )
 
-        if trailingYield is not None:
-            trailingValue = float(trailingYield)
-
-            if (
-                trailingValue != 0
-                and abs(dividendYield / trailingValue) > 20
-            ):
-                dividendYield /= 100
-        elif abs(dividendYield) > 0.20:
-            dividendYield /= 100
+    if trailingDividendRate is not None and previousClose not in (None, 0):
+        trailingYield = (
+            float(trailingDividendRate) / float(previousClose)
+        )
+    else:
+        rawTrailingYield = info.get('trailingAnnualDividendYield')
+        trailingYield = (
+            float(rawTrailingYield) / 100
+            if rawTrailingYield is not None
+            else None
+        )
 
     fiveYearAverageYield = info.get('fiveYearAvgDividendYield')
 
@@ -362,13 +370,9 @@ def dividendMetrics(
     return pd.Series(
         {
             'Dividend Yield': dividendYield,
-            'Dividend Rate': info.get('dividendRate'),
-            'Trailing Annual Dividend Yield': info.get(
-                'trailingAnnualDividendYield'
-            ),
-            'Trailing Annual Dividend Rate': info.get(
-                'trailingAnnualDividendRate'
-            ),
+            'Dividend Rate': dividendRate,
+            'Trailing Annual Dividend Yield': trailingYield,
+            'Trailing Annual Dividend Rate': trailingDividendRate,
             'Payout Ratio': info.get('payoutRatio'),
             'Five Year Average Dividend Yield': info.get(
                 'fiveYearAvgDividendYield'

@@ -87,19 +87,24 @@ st.markdown(
     <style>
         .block-container {padding-top: 1.8rem; padding-bottom: 2rem;}
         [data-testid="stMetric"] {
-            background: #F8FAFC;
-            border: 1px solid #E2E8F0;
+            background: #111827;
+            border: 1px solid #263244;
             border-radius: 12px;
             padding: 14px 16px;
         }
-        [data-testid="stMetricLabel"] {color: #475569;}
-        div[data-testid="stDataFrame"] {border-radius: 10px; overflow: hidden;}
-        .portfolio-subtitle {color: #64748B; margin-top: -0.6rem;}
+        [data-testid="stMetricLabel"] {color: #94A3B8;}
+        [data-testid="stMetricValue"] {color: #F8FAFC;}
+        div[data-testid="stDataFrame"] {
+            border: 1px solid #263244;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .portfolio-subtitle {color: #94A3B8; margin-top: -0.6rem;}
         .portfolio-badge {
             display: inline-block;
-            background: #EFF6FF;
-            color: #1D4ED8;
-            border: 1px solid #BFDBFE;
+            background: #172033;
+            color: #93C5FD;
+            border: 1px solid #263B5E;
             border-radius: 999px;
             padding: 0.2rem 0.65rem;
             margin-right: 0.35rem;
@@ -243,15 +248,16 @@ def resolveWeights(
 
     meanReturns = returns.mean()
     covariance = returns.cov()
+    maximumWeight = settings.get('maximumOptimizationWeight', 1.0)
 
     if settings['weightingMethod'] == 'Minimum Variance':
         result = minimumVariancePortfolio(
             meanReturns=meanReturns,
             covarianceMatrix=covariance,
             minimumWeight=(
-                -1.0 if settings['allowShortSelling'] else 0.0
+                -maximumWeight if settings['allowShortSelling'] else 0.0
             ),
-            maximumWeight=1.0,
+            maximumWeight=maximumWeight,
             tradingDays=settings['annualizationFactor']
         )
 
@@ -264,9 +270,9 @@ def resolveWeights(
                 0.0
             ),
             minimumWeight=(
-                -1.0 if settings['allowShortSelling'] else 0.0
+                -maximumWeight if settings['allowShortSelling'] else 0.0
             ),
-            maximumWeight=1.0,
+            maximumWeight=maximumWeight,
             tradingDays=settings['annualizationFactor']
         )
 
@@ -689,6 +695,10 @@ def renderOptimizationTab(
     meanReturns = returns.mean()
     covariance = returns.cov()
     tradingDays = settings['annualizationFactor']
+    maximumWeight = settings.get('maximumOptimizationWeight', 1.0)
+    minimumWeight = (
+        -maximumWeight if settings['allowShortSelling'] else 0.0
+    )
 
     with st.spinner('Computing efficient frontier...'):
         try:
@@ -696,6 +706,8 @@ def renderOptimizationTab(
                 meanReturns=meanReturns,
                 covarianceMatrix=covariance,
                 points=settings['frontierPoints'],
+                minimumWeight=minimumWeight,
+                maximumWeight=maximumWeight,
                 tradingDays=tradingDays
             )
         except RuntimeError as error:
@@ -714,6 +726,8 @@ def renderOptimizationTab(
         minimumVariance = minimumVariancePortfolio(
             meanReturns=meanReturns,
             covarianceMatrix=covariance,
+            minimumWeight=minimumWeight,
+            maximumWeight=maximumWeight,
             tradingDays=tradingDays
         )
 
@@ -721,8 +735,14 @@ def renderOptimizationTab(
             meanReturns=meanReturns,
             covarianceMatrix=covariance,
             riskFreeRate=riskFreeRate,
+            minimumWeight=minimumWeight,
+            maximumWeight=maximumWeight,
             tradingDays=tradingDays
         )
+
+    st.caption(
+        f'Hard constraint: maximum {maximumWeight:.0%} per asset.'
+    )
 
     st.plotly_chart(
         charts.efficientFrontierChart(
@@ -748,6 +768,8 @@ def renderOptimizationTab(
                     meanReturns=meanReturns,
                     covarianceMatrix=covariance,
                     targetReturn=settings['targetReturn'],
+                    minimumWeight=minimumWeight,
+                    maximumWeight=maximumWeight,
                     tradingDays=tradingDays
                 )
             except RuntimeError as error:
@@ -759,6 +781,8 @@ def renderOptimizationTab(
                     meanReturns=meanReturns,
                     covarianceMatrix=covariance,
                     targetVolatility=settings['targetVolatility'],
+                    minimumWeight=minimumWeight,
+                    maximumWeight=maximumWeight,
                     tradingDays=tradingDays
                 )
             except RuntimeError as error:
@@ -973,7 +997,8 @@ def renderSimulationTab(
 
 def renderFundamentalsTab(
     settings: dict,
-    prices: pd.DataFrame
+    prices: pd.DataFrame,
+    weights: pd.Series
 ) -> None:
     renderSectionTitle(
         'Fundamentals',
@@ -1024,6 +1049,88 @@ def renderFundamentalsTab(
             'No fundamental data could be retrieved for these tickers.'
         )
         return
+
+    st.subheader('Expected Portfolio Income')
+    investmentAmount = st.number_input(
+        'Investment amount',
+        min_value=1.0,
+        value=float(settings['initialValue']),
+        step=1000.0,
+        key='dividendInvestmentAmount',
+        help='Capital used to estimate annual and monthly dividend income.'
+    )
+
+    dividendIndex = ('Dividends', 'Dividend Yield')
+
+    if dividendIndex in fundamentals.index:
+        dividendYields = pd.to_numeric(
+            fundamentals.loc[dividendIndex].reindex(tickers),
+            errors='coerce'
+        )
+        portfolioWeights = weights.reindex(tickers).fillna(0).astype(float)
+        available = dividendYields.notna()
+        coveredWeight = float(portfolioWeights[available].sum())
+        weightedDividendYield = float(
+            (portfolioWeights[available] * dividendYields[available]).sum()
+        )
+        annualDividendIncome = investmentAmount * weightedDividendYield
+
+        renderMetricRow([
+            {
+                'label': 'Portfolio Dividend Yield',
+                'value': formatPercent(weightedDividendYield, decimals=2)
+            },
+            {
+                'label': 'Expected Annual Income',
+                'value': formatCurrency(annualDividendIncome)
+            },
+            {
+                'label': 'Expected Monthly Income',
+                'value': formatCurrency(annualDividendIncome / 12)
+            },
+            {
+                'label': 'Weight Coverage',
+                'value': formatPercent(coveredWeight, decimals=1),
+                'help': 'Portfolio weight for which dividend data is available.'
+            }
+        ])
+
+        dividendBreakdown = pd.DataFrame({
+            'Ticker': tickers,
+            'Weight': portfolioWeights.values * 100,
+            'Dividend Yield': dividendYields.values * 100
+        })
+        dividendBreakdown['Annual Income'] = (
+            investmentAmount
+            * portfolioWeights.values
+            * dividendYields.fillna(0).values
+        )
+
+        with st.expander('Dividend income breakdown', expanded=False):
+            st.dataframe(
+                dividendBreakdown,
+                hide_index=True,
+                width='stretch',
+                column_config={
+                    'Ticker': st.column_config.TextColumn('Ticker'),
+                    'Weight': st.column_config.NumberColumn(
+                        'Weight', format='%.2f%%'
+                    ),
+                    'Dividend Yield': st.column_config.NumberColumn(
+                        'Dividend Yield', format='%.2f%%'
+                    ),
+                    'Annual Income': st.column_config.NumberColumn(
+                        'Annual Income', format='$%.2f'
+                    )
+                }
+            )
+    else:
+        renderEmptyState(
+            'Dividend estimate unavailable',
+            'Yahoo Finance did not return dividend data for this portfolio.'
+        )
+
+    st.divider()
 
     selectedTicker = st.selectbox(
         'Company or fund',
@@ -1340,7 +1447,7 @@ def main() -> None:
         renderSimulationTab(portfolioReturnSeries, settings)
 
     with fundamentalsTab:
-        renderFundamentalsTab(settings, prices)
+        renderFundamentalsTab(settings, prices, weights)
 
     with methodologyTab:
         renderMethodologyTab(settings, riskFreeInfo)

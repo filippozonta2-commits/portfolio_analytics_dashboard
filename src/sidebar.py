@@ -566,6 +566,7 @@ def renderPortfolioSettings(
             f'Entered total: {enteredTotal:.2%}'
         )
 
+
     rebalanceFrequency = st.sidebar.selectbox(
         'Rebalancing frequency',
         options=[
@@ -770,10 +771,7 @@ def renderOptimizationSettings(
         100,
         max(1, ceil(100 / max(tickerCount, 1)))
     )
-    defaultMaximumPercent = max(
-        minimumFeasiblePercent,
-        35
-    )
+    defaultMaximumPercent = max(minimumFeasiblePercent, 35)
 
     maximumWeightPercent = st.sidebar.slider(
         'Maximum weight per asset',
@@ -784,8 +782,8 @@ def renderOptimizationSettings(
         format='%d%%',
         disabled=not optimizationEnabled,
         help=(
-            'Caps the allocation to any single asset. The lower bound '
-            'automatically stays feasible for the selected number of tickers.'
+            'Hard cap applied to every optimized portfolio. The minimum '
+            'allowed value remains feasible for the number of assets.'
         ),
         key='maximumOptimizationWeightPercent'
     )

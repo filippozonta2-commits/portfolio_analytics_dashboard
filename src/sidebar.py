@@ -775,18 +775,34 @@ def renderOptimizationSettings(
 
     maximumWeightPercent = st.sidebar.slider(
         'Maximum weight per asset',
-        min_value=minimumFeasiblePercent,
+        min_value=1,
         max_value=100,
         value=defaultMaximumPercent,
         step=1,
         format='%d%%',
         disabled=not optimizationEnabled,
         help=(
-            'Hard cap applied to every optimized portfolio. The minimum '
-            'allowed value remains feasible for the number of assets.'
+            'Hard cap applied to every optimized portfolio. Values below '
+            '100% divided by the number of assets are mathematically infeasible.'
         ),
         key='maximumOptimizationWeightPercent'
     )
+
+    optimizationCapFeasible = (
+        maximumWeightPercent >= minimumFeasiblePercent
+    )
+
+    if optimizationCapFeasible:
+        st.sidebar.caption(
+            f'Minimum feasible cap for {tickerCount} assets: '
+            f'{minimumFeasiblePercent}%.'
+        )
+    else:
+        st.sidebar.error(
+            f'Cap not feasible: with {tickerCount} assets the minimum is '
+            f'{minimumFeasiblePercent}%. Increase the maximum weight to '
+            'enable optimization.'
+        )
 
     targetReturn = None
     targetVolatility = None
@@ -848,6 +864,10 @@ def renderOptimizationSettings(
         'optimizationEnabled': optimizationEnabled,
         'optimizationMethod': optimizationMethod,
         'maximumOptimizationWeight': maximumWeightPercent / 100,
+        'optimizationCapFeasible': optimizationCapFeasible,
+        'minimumFeasibleOptimizationWeight': (
+            minimumFeasiblePercent / 100
+        ),
         'targetReturn': targetReturn,
         'targetVolatility': targetVolatility,
         'frontierPoints': int(frontierPoints),

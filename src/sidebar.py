@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from math import ceil
 from typing import Any
 
 import numpy as np
@@ -565,7 +566,6 @@ def renderPortfolioSettings(
             f'Entered total: {enteredTotal:.2%}'
         )
 
-
     rebalanceFrequency = st.sidebar.selectbox(
         'Rebalancing frequency',
         options=[
@@ -739,7 +739,9 @@ def renderRiskSettings() -> dict[str, Any]:
     }
 
 
-def renderOptimizationSettings() -> dict[str, Any]:
+def renderOptimizationSettings(
+    tickerCount: int
+) -> dict[str, Any]:
     '''Render portfolio optimization settings.'''
     st.sidebar.subheader(
         'Optimization'
@@ -762,6 +764,30 @@ def renderOptimizationSettings() -> dict[str, Any]:
         index=0,
         disabled=not optimizationEnabled,
         key='optimizationMethod'
+    )
+
+    minimumFeasiblePercent = min(
+        100,
+        max(1, ceil(100 / max(tickerCount, 1)))
+    )
+    defaultMaximumPercent = max(
+        minimumFeasiblePercent,
+        35
+    )
+
+    maximumWeightPercent = st.sidebar.slider(
+        'Maximum weight per asset',
+        min_value=minimumFeasiblePercent,
+        max_value=100,
+        value=defaultMaximumPercent,
+        step=1,
+        format='%d%%',
+        disabled=not optimizationEnabled,
+        help=(
+            'Caps the allocation to any single asset. The lower bound '
+            'automatically stays feasible for the selected number of tickers.'
+        ),
+        key='maximumOptimizationWeightPercent'
     )
 
     targetReturn = None
@@ -823,6 +849,7 @@ def renderOptimizationSettings() -> dict[str, Any]:
     return {
         'optimizationEnabled': optimizationEnabled,
         'optimizationMethod': optimizationMethod,
+        'maximumOptimizationWeight': maximumWeightPercent / 100,
         'targetReturn': targetReturn,
         'targetVolatility': targetVolatility,
         'frontierPoints': int(frontierPoints),
@@ -1090,6 +1117,11 @@ def validateSidebarSettings(
             'rollingWindow must be greater than one.'
         )
 
+    if not 0 < settings['maximumOptimizationWeight'] <= 1:
+        raise ValueError(
+            'maximumOptimizationWeight must be between zero and one.'
+        )
+
     return settings
 
 
@@ -1142,8 +1174,8 @@ def renderSidebar() -> dict[str, Any]:
         'Optimization',
         expanded=False
     ):
-        optimizationSettings = (
-            renderOptimizationSettings()
+        optimizationSettings = renderOptimizationSettings(
+            len(universeSettings['tickers'])
         )
 
     with st.sidebar.expander(

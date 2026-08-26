@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.fundamentals import dividendMetrics, formatFundamentals
 from src.sidebar import normalizeWeights, parseTickers, validateCustomWeightTotal, validateTickers
 from src.simulation import efficientFrontier, minimumVariancePortfolio, optimizationWeights
 
@@ -22,6 +23,58 @@ def test_optimizer_residual_weights_are_cleaned():
     weights = optimizationWeights(result, ['A', 'B', 'C'])
     assert weights['B'] == 0
     assert np.isclose(weights.sum(), 1.0)
+
+
+def test_yahoo_dividend_yields_are_normalized_before_formatting():
+    metrics = dividendMetrics(
+        'AAPL',
+        info={
+            'dividendYield': 0.35,
+            'trailingAnnualDividendYield': 0.35,
+            'dividendRate': 1.08,
+            'trailingAnnualDividendRate': 1.08,
+            'currentPrice': 309.63,
+            'previousClose': 309.63,
+            'fiveYearAvgDividendYield': 0.55
+        }
+    )
+    frame = pd.DataFrame({'AAPL': metrics})
+    formatted = formatFundamentals(frame)
+
+    assert formatted.loc['Dividend Yield', 'AAPL'] == '0.35%'
+    assert formatted.loc['Trailing Annual Dividend Yield', 'AAPL'] == '0.35%'
+    assert formatted.loc['Five Year Average Dividend Yield', 'AAPL'] == '0.55%'
+
+
+@pytest.mark.parametrize('raw_yield', [35.0, 0.35, 0.0035])
+def test_yahoo_dividend_yield_scales_produce_same_result(raw_yield):
+    metrics = dividendMetrics(
+        'AAPL',
+        info={
+            'dividendYield': raw_yield,
+            'trailingAnnualDividendYield': raw_yield
+        }
+    )
+    formatted = formatFundamentals(pd.DataFrame({'AAPL': metrics}))
+
+    assert formatted.loc['Dividend Yield', 'AAPL'] == '0.35%'
+    assert formatted.loc['Trailing Annual Dividend Yield', 'AAPL'] == '0.35%'
+
+
+def test_scaled_dividend_rate_cannot_create_a_35_percent_yield():
+    metrics = dividendMetrics(
+        'AAPL',
+        info={
+            'dividendRate': 108.0,
+            'trailingAnnualDividendRate': 108.0,
+            'currentPrice': 309.63,
+            'previousClose': 309.63
+        }
+    )
+    formatted = formatFundamentals(pd.DataFrame({'AAPL': metrics}))
+
+    assert formatted.loc['Dividend Yield', 'AAPL'] == '0.35%'
+    assert formatted.loc['Trailing Annual Dividend Yield', 'AAPL'] == '0.35%'
 
 
 def test_efficient_frontier_is_upper_and_monotonic():

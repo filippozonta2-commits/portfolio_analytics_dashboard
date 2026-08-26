@@ -72,6 +72,9 @@ from src.utils import (
 )
 
 
+BUILD_VERSION = 'runtime-fix-2026-08-26.2'
+
+
 st.set_page_config(
     page_title='PortfolioLab | Portfolio Analytics',
     page_icon='📊',
@@ -223,14 +226,6 @@ def simulationOutcomeSummary(
         )
 
     return pd.Series(summary, name='Simulation Summary')
-
-
-def portfolioConcentration(weights: pd.Series) -> tuple[float, float]:
-    '''Return HHI concentration and effective number of assets.'''
-    cleanWeights = weights.dropna().astype(float)
-    hhi = float(np.square(cleanWeights).sum())
-    effectiveAssets = float(1 / hhi) if hhi > 0 else np.nan
-    return hhi, effectiveAssets
 
 
 # --------------------------------------------------------------------------
@@ -400,7 +395,8 @@ def renderOverviewTab(
                     portfolioReturnSeries,
                     benchmarkReturnSeries
                 ),
-                use_container_width=True
+                use_container_width=True,
+                key='overview_cumulative_benchmark_chart'
             )
         else:
             cumulativeChart = charts.cumulativeReturnsChart(
@@ -585,7 +581,8 @@ def renderBenchmarkTab(
             portfolioReturnSeries,
             benchmarkReturnSeries
         ),
-        use_container_width=True
+        use_container_width=True,
+        key='benchmark_cumulative_comparison_chart'
     )
 
     relativePerformance = computeRelativePerformance(
@@ -744,7 +741,7 @@ def renderOptimizationTab(
         )
 
     st.caption(
-        f'Optimization constraint: maximum {maximumWeight:.0%} per asset.'
+        f'Hard constraint: maximum {maximumWeight:.0%} per asset.'
     )
 
     st.plotly_chart(
@@ -804,13 +801,6 @@ def renderOptimizationTab(
         settings['tickers']
     )
 
-    currentHHI, currentEffectiveAssets = portfolioConcentration(
-        currentWeights
-    )
-    optimizedHHI, optimizedEffectiveAssets = portfolioConcentration(
-        optimizedWeights
-    )
-
     summaryColumn, allocationColumn = st.columns([2, 1])
 
     with summaryColumn:
@@ -826,19 +816,8 @@ def renderOptimizationTab(
             {
                 'label': 'Sharpe Ratio',
                 'value': f'{optimizationResult["sharpeRatio"]:.3f}'
-            },
-            {
-                'label': 'Effective Assets',
-                'value': f'{optimizedEffectiveAssets:.2f}',
-                'delta': f'{optimizedEffectiveAssets - currentEffectiveAssets:+.2f}'
             }
         ])
-
-        st.caption(
-            f'Concentration HHI: current {currentHHI:.3f} · '
-            f'optimized {optimizedHHI:.3f}. Lower values indicate '
-            'a more diversified allocation.'
-        )
 
         allocationComparison = pd.DataFrame({
             'Asset': settings['tickers'],
@@ -892,82 +871,15 @@ def renderOptimizationTab(
             use_container_width=True
         )
 
-    minimumVarianceWeights = optimizationWeights(
-        minimumVariance,
-        settings['tickers']
-    )
-    maximumSharpeWeights = optimizationWeights(
-        maximumSharpe,
-        settings['tickers']
-    )
-
     comparison = pd.DataFrame({
         'Current': currentWeights,
-        'Minimum Variance': minimumVarianceWeights,
-        'Maximum Sharpe': maximumSharpeWeights,
-        'Selected Optimization': optimizedWeights
+        'Optimized': optimizedWeights
     })
 
     st.plotly_chart(
-        charts.allocationComparisonChart(
-            comparison,
-            title='Current vs Optimized Allocations'
-        ),
+        charts.allocationComparisonChart(comparison),
         use_container_width=True
     )
-
-    comparisonRows = []
-    portfolioDefinitions = {
-        'Current': currentWeights,
-        'Minimum Variance': minimumVarianceWeights,
-        'Maximum Sharpe': maximumSharpeWeights
-    }
-
-    for portfolioName, portfolioWeights in portfolioDefinitions.items():
-        hhi, effectiveAssets = portfolioConcentration(portfolioWeights)
-        if portfolioName == 'Current':
-            portfolioSeries = computePortfolioReturns(
-                returns,
-                portfolioWeights
-            )
-            expectedReturn = annualizedReturn(
-                portfolioSeries,
-                tradingDays=tradingDays
-            )
-            volatility = annualizedVolatility(
-                portfolioSeries,
-                tradingDays=tradingDays
-            )
-            sharpe = sharpeRatio(
-                portfolioSeries,
-                riskFreeRate=riskFreeRate,
-                tradingDays=tradingDays
-            )
-        else:
-            source = (
-                minimumVariance
-                if portfolioName == 'Minimum Variance'
-                else maximumSharpe
-            )
-            expectedReturn = source['expectedReturn']
-            volatility = source['volatility']
-            sharpe = (
-                (expectedReturn - riskFreeRate) / volatility
-                if volatility > 0
-                else np.nan
-            )
-
-        comparisonRows.append({
-            'Portfolio': portfolioName,
-            'Expected Return': expectedReturn,
-            'Volatility': volatility,
-            'Sharpe': sharpe,
-            'HHI': hhi,
-            'Effective Assets': effectiveAssets
-        })
-
-    comparisonTable = pd.DataFrame(comparisonRows).set_index('Portfolio')
-    renderDataFrame(comparisonTable)
 
 
 def renderSimulationTab(
@@ -1085,7 +997,8 @@ def renderSimulationTab(
 
 def renderFundamentalsTab(
     settings: dict,
-    prices: pd.DataFrame
+    prices: pd.DataFrame,
+    weights: pd.Series
 ) -> None:
     renderSectionTitle(
         'Fundamentals',
@@ -1136,6 +1049,88 @@ def renderFundamentalsTab(
             'No fundamental data could be retrieved for these tickers.'
         )
         return
+
+    st.subheader('Expected Portfolio Income')
+    investmentAmount = st.number_input(
+        'Investment amount',
+        min_value=1.0,
+        value=float(settings['initialValue']),
+        step=1000.0,
+        key='dividendInvestmentAmount',
+        help='Capital used to estimate annual and monthly dividend income.'
+    )
+
+    dividendIndex = ('Dividends', 'Dividend Yield')
+
+    if dividendIndex in fundamentals.index:
+        dividendYields = pd.to_numeric(
+            fundamentals.loc[dividendIndex].reindex(tickers),
+            errors='coerce'
+        )
+        portfolioWeights = weights.reindex(tickers).fillna(0).astype(float)
+        available = dividendYields.notna()
+        coveredWeight = float(portfolioWeights[available].sum())
+        weightedDividendYield = float(
+            (portfolioWeights[available] * dividendYields[available]).sum()
+        )
+        annualDividendIncome = investmentAmount * weightedDividendYield
+
+        renderMetricRow([
+            {
+                'label': 'Portfolio Dividend Yield',
+                'value': formatPercent(weightedDividendYield, decimals=2)
+            },
+            {
+                'label': 'Expected Annual Income',
+                'value': formatCurrency(annualDividendIncome)
+            },
+            {
+                'label': 'Expected Monthly Income',
+                'value': formatCurrency(annualDividendIncome / 12)
+            },
+            {
+                'label': 'Weight Coverage',
+                'value': formatPercent(coveredWeight, decimals=1),
+                'help': 'Portfolio weight for which dividend data is available.'
+            }
+        ])
+
+        dividendBreakdown = pd.DataFrame({
+            'Ticker': tickers,
+            'Weight': portfolioWeights.values * 100,
+            'Dividend Yield': dividendYields.values * 100
+        })
+        dividendBreakdown['Annual Income'] = (
+            investmentAmount
+            * portfolioWeights.values
+            * dividendYields.fillna(0).values
+        )
+
+        with st.expander('Dividend income breakdown', expanded=False):
+            st.dataframe(
+                dividendBreakdown,
+                hide_index=True,
+                width='stretch',
+                column_config={
+                    'Ticker': st.column_config.TextColumn('Ticker'),
+                    'Weight': st.column_config.NumberColumn(
+                        'Weight', format='%.2f%%'
+                    ),
+                    'Dividend Yield': st.column_config.NumberColumn(
+                        'Dividend Yield', format='%.2f%%'
+                    ),
+                    'Annual Income': st.column_config.NumberColumn(
+                        'Annual Income', format='$%.2f'
+                    )
+                }
+            )
+    else:
+        renderEmptyState(
+            'Dividend estimate unavailable',
+            'Yahoo Finance did not return dividend data for this portfolio.'
+        )
+
+    st.divider()
 
     selectedTicker = st.selectbox(
         'Company or fund',
@@ -1240,12 +1235,10 @@ def renderMethodologyTab(
 
         - The efficient frontier is estimated from historical mean returns
           and the sample covariance matrix.
-        - Optimization uses a configurable maximum allocation per asset of
-          **{settings['maximumOptimizationWeight']:.0%}**. Weights sum to 100%.
+        - Optimization is long-only unless short selling is explicitly
+          enabled. Weights sum to 100%.
         - The maximum-Sharpe portfolio is sensitive to expected-return
           estimates and should be interpreted as a scenario, not a forecast.
-        - HHI and effective number of assets are reported to make portfolio
-          concentration explicit rather than hiding corner solutions.
 
         ### Simulation
 
@@ -1454,7 +1447,7 @@ def main() -> None:
         renderSimulationTab(portfolioReturnSeries, settings)
 
     with fundamentalsTab:
-        renderFundamentalsTab(settings, prices)
+        renderFundamentalsTab(settings, prices, weights)
 
     with methodologyTab:
         renderMethodologyTab(settings, riskFreeInfo)
@@ -1465,12 +1458,13 @@ def main() -> None:
     st.divider()
     st.markdown(
         """
-        <div style="text-align: center; color: #94A3B8; padding: 0.5rem 0 1rem;">
+        <div style="text-align: center; color: #6B7280; padding: 0.5rem 0 1rem;">
             Built by <strong>Filippo Zonta, MSc</strong>
         </div>
         """,
         unsafe_allow_html=True
     )
+    st.caption(f'Build: {BUILD_VERSION}')
 
 
 if __name__ == '__main__':

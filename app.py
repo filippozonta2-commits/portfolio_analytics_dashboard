@@ -72,7 +72,7 @@ from src.utils import (
 )
 
 
-BUILD_VERSION = 'runtime-fix-2026-08-25.1'
+BUILD_VERSION = 'runtime-fix-2026-08-26.2'
 
 
 st.set_page_config(

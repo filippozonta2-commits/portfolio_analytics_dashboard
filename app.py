@@ -246,6 +246,15 @@ def resolveWeights(
             name='Weight'
         )
 
+    if not settings.get('optimizationCapFeasible', True):
+        minimumFeasible = settings[
+            'minimumFeasibleOptimizationWeight'
+        ]
+        raise ValueError(
+            'The optimization weight cap is infeasible for the selected '
+            f'assets. Use at least {minimumFeasible:.0%} per asset.'
+        )
+
     meanReturns = returns.mean()
     covariance = returns.cov()
     maximumWeight = settings.get('maximumOptimizationWeight', 1.0)
@@ -689,6 +698,18 @@ def renderOptimizationTab(
         renderEmptyState(
             'Not enough assets',
             'Optimization requires at least two tickers.'
+        )
+        return
+
+    if not settings.get('optimizationCapFeasible', True):
+        minimumFeasible = settings[
+            'minimumFeasibleOptimizationWeight'
+        ]
+        renderEmptyState(
+            'Maximum weight is not feasible',
+            f'With {len(settings["tickers"])} assets, the maximum weight '
+            f'must be at least {minimumFeasible:.0%}. Increase the cap in '
+            'the Optimization controls.'
         )
         return
 

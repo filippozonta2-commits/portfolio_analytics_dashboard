@@ -12,6 +12,11 @@ def test_ticker_parsing_is_clean_and_unlimited():
     assert len(validateTickers([f'T{i}' for i in range(100)])) == 100
 
 
+def test_london_gold_ticker_is_mapped_to_yahoo_symbol():
+    assert parseTickers('SGLN') == ['SGLN.L']
+    assert parseTickers('AAPL, SGLN, SGLN.L') == ['AAPL', 'SGLN.L']
+
+
 def test_weights_normalize_and_reject_overallocation():
     assert np.allclose(normalizeWeights(np.array([2.0, 3.0])), [0.4, 0.6])
     with pytest.raises(ValueError, match='115.00%'):

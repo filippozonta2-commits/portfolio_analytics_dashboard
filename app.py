@@ -84,19 +84,24 @@ st.markdown(
     <style>
         .block-container {padding-top: 1.8rem; padding-bottom: 2rem;}
         [data-testid="stMetric"] {
-            background: #F8FAFC;
-            border: 1px solid #E2E8F0;
+            background: #111827;
+            border: 1px solid #263244;
             border-radius: 12px;
             padding: 14px 16px;
         }
-        [data-testid="stMetricLabel"] {color: #475569;}
-        div[data-testid="stDataFrame"] {border-radius: 10px; overflow: hidden;}
-        .portfolio-subtitle {color: #64748B; margin-top: -0.6rem;}
+        [data-testid="stMetricLabel"] {color: #94A3B8;}
+        [data-testid="stMetricValue"] {color: #F8FAFC;}
+        div[data-testid="stDataFrame"] {
+            border: 1px solid #263244;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .portfolio-subtitle {color: #94A3B8; margin-top: -0.6rem;}
         .portfolio-badge {
             display: inline-block;
-            background: #EFF6FF;
-            color: #1D4ED8;
-            border: 1px solid #BFDBFE;
+            background: #172033;
+            color: #93C5FD;
+            border: 1px solid #263B5E;
             border-radius: 999px;
             padding: 0.2rem 0.65rem;
             margin-right: 0.35rem;
@@ -220,6 +225,14 @@ def simulationOutcomeSummary(
     return pd.Series(summary, name='Simulation Summary')
 
 
+def portfolioConcentration(weights: pd.Series) -> tuple[float, float]:
+    '''Return HHI concentration and effective number of assets.'''
+    cleanWeights = weights.dropna().astype(float)
+    hhi = float(np.square(cleanWeights).sum())
+    effectiveAssets = float(1 / hhi) if hhi > 0 else np.nan
+    return hhi, effectiveAssets
+
+
 # --------------------------------------------------------------------------
 # Portfolio weight resolution
 # --------------------------------------------------------------------------
@@ -240,15 +253,16 @@ def resolveWeights(
 
     meanReturns = returns.mean()
     covariance = returns.cov()
+    maximumWeight = settings.get('maximumOptimizationWeight', 1.0)
 
     if settings['weightingMethod'] == 'Minimum Variance':
         result = minimumVariancePortfolio(
             meanReturns=meanReturns,
             covarianceMatrix=covariance,
             minimumWeight=(
-                -1.0 if settings['allowShortSelling'] else 0.0
+                -maximumWeight if settings['allowShortSelling'] else 0.0
             ),
-            maximumWeight=1.0,
+            maximumWeight=maximumWeight,
             tradingDays=settings['annualizationFactor']
         )
 
@@ -261,9 +275,9 @@ def resolveWeights(
                 0.0
             ),
             minimumWeight=(
-                -1.0 if settings['allowShortSelling'] else 0.0
+                -maximumWeight if settings['allowShortSelling'] else 0.0
             ),
-            maximumWeight=1.0,
+            maximumWeight=maximumWeight,
             tradingDays=settings['annualizationFactor']
         )
 
@@ -684,6 +698,10 @@ def renderOptimizationTab(
     meanReturns = returns.mean()
     covariance = returns.cov()
     tradingDays = settings['annualizationFactor']
+    maximumWeight = settings.get('maximumOptimizationWeight', 1.0)
+    minimumWeight = (
+        -maximumWeight if settings['allowShortSelling'] else 0.0
+    )
 
     with st.spinner('Computing efficient frontier...'):
         try:
@@ -691,6 +709,8 @@ def renderOptimizationTab(
                 meanReturns=meanReturns,
                 covarianceMatrix=covariance,
                 points=settings['frontierPoints'],
+                minimumWeight=minimumWeight,
+                maximumWeight=maximumWeight,
                 tradingDays=tradingDays
             )
         except RuntimeError as error:
@@ -709,6 +729,8 @@ def renderOptimizationTab(
         minimumVariance = minimumVariancePortfolio(
             meanReturns=meanReturns,
             covarianceMatrix=covariance,
+            minimumWeight=minimumWeight,
+            maximumWeight=maximumWeight,
             tradingDays=tradingDays
         )
 
@@ -716,8 +738,14 @@ def renderOptimizationTab(
             meanReturns=meanReturns,
             covarianceMatrix=covariance,
             riskFreeRate=riskFreeRate,
+            minimumWeight=minimumWeight,
+            maximumWeight=maximumWeight,
             tradingDays=tradingDays
         )
+
+    st.caption(
+        f'Optimization constraint: maximum {maximumWeight:.0%} per asset.'
+    )
 
     st.plotly_chart(
         charts.efficientFrontierChart(
@@ -743,6 +771,8 @@ def renderOptimizationTab(
                     meanReturns=meanReturns,
                     covarianceMatrix=covariance,
                     targetReturn=settings['targetReturn'],
+                    minimumWeight=minimumWeight,
+                    maximumWeight=maximumWeight,
                     tradingDays=tradingDays
                 )
             except RuntimeError as error:
@@ -754,6 +784,8 @@ def renderOptimizationTab(
                     meanReturns=meanReturns,
                     covarianceMatrix=covariance,
                     targetVolatility=settings['targetVolatility'],
+                    minimumWeight=minimumWeight,
+                    maximumWeight=maximumWeight,
                     tradingDays=tradingDays
                 )
             except RuntimeError as error:
@@ -772,6 +804,13 @@ def renderOptimizationTab(
         settings['tickers']
     )
 
+    currentHHI, currentEffectiveAssets = portfolioConcentration(
+        currentWeights
+    )
+    optimizedHHI, optimizedEffectiveAssets = portfolioConcentration(
+        optimizedWeights
+    )
+
     summaryColumn, allocationColumn = st.columns([2, 1])
 
     with summaryColumn:
@@ -787,8 +826,19 @@ def renderOptimizationTab(
             {
                 'label': 'Sharpe Ratio',
                 'value': f'{optimizationResult["sharpeRatio"]:.3f}'
+            },
+            {
+                'label': 'Effective Assets',
+                'value': f'{optimizedEffectiveAssets:.2f}',
+                'delta': f'{optimizedEffectiveAssets - currentEffectiveAssets:+.2f}'
             }
         ])
+
+        st.caption(
+            f'Concentration HHI: current {currentHHI:.3f} · '
+            f'optimized {optimizedHHI:.3f}. Lower values indicate '
+            'a more diversified allocation.'
+        )
 
         allocationComparison = pd.DataFrame({
             'Asset': settings['tickers'],
@@ -842,15 +892,82 @@ def renderOptimizationTab(
             use_container_width=True
         )
 
+    minimumVarianceWeights = optimizationWeights(
+        minimumVariance,
+        settings['tickers']
+    )
+    maximumSharpeWeights = optimizationWeights(
+        maximumSharpe,
+        settings['tickers']
+    )
+
     comparison = pd.DataFrame({
         'Current': currentWeights,
-        'Optimized': optimizedWeights
+        'Minimum Variance': minimumVarianceWeights,
+        'Maximum Sharpe': maximumSharpeWeights,
+        'Selected Optimization': optimizedWeights
     })
 
     st.plotly_chart(
-        charts.allocationComparisonChart(comparison),
+        charts.allocationComparisonChart(
+            comparison,
+            title='Current vs Optimized Allocations'
+        ),
         use_container_width=True
     )
+
+    comparisonRows = []
+    portfolioDefinitions = {
+        'Current': currentWeights,
+        'Minimum Variance': minimumVarianceWeights,
+        'Maximum Sharpe': maximumSharpeWeights
+    }
+
+    for portfolioName, portfolioWeights in portfolioDefinitions.items():
+        hhi, effectiveAssets = portfolioConcentration(portfolioWeights)
+        if portfolioName == 'Current':
+            portfolioSeries = computePortfolioReturns(
+                returns,
+                portfolioWeights
+            )
+            expectedReturn = annualizedReturn(
+                portfolioSeries,
+                tradingDays=tradingDays
+            )
+            volatility = annualizedVolatility(
+                portfolioSeries,
+                tradingDays=tradingDays
+            )
+            sharpe = sharpeRatio(
+                portfolioSeries,
+                riskFreeRate=riskFreeRate,
+                tradingDays=tradingDays
+            )
+        else:
+            source = (
+                minimumVariance
+                if portfolioName == 'Minimum Variance'
+                else maximumSharpe
+            )
+            expectedReturn = source['expectedReturn']
+            volatility = source['volatility']
+            sharpe = (
+                (expectedReturn - riskFreeRate) / volatility
+                if volatility > 0
+                else np.nan
+            )
+
+        comparisonRows.append({
+            'Portfolio': portfolioName,
+            'Expected Return': expectedReturn,
+            'Volatility': volatility,
+            'Sharpe': sharpe,
+            'HHI': hhi,
+            'Effective Assets': effectiveAssets
+        })
+
+    comparisonTable = pd.DataFrame(comparisonRows).set_index('Portfolio')
+    renderDataFrame(comparisonTable)
 
 
 def renderSimulationTab(
@@ -1123,10 +1240,12 @@ def renderMethodologyTab(
 
         - The efficient frontier is estimated from historical mean returns
           and the sample covariance matrix.
-        - Optimization is long-only unless short selling is explicitly
-          enabled. Weights sum to 100%.
+        - Optimization uses a configurable maximum allocation per asset of
+          **{settings['maximumOptimizationWeight']:.0%}**. Weights sum to 100%.
         - The maximum-Sharpe portfolio is sensitive to expected-return
           estimates and should be interpreted as a scenario, not a forecast.
+        - HHI and effective number of assets are reported to make portfolio
+          concentration explicit rather than hiding corner solutions.
 
         ### Simulation
 
@@ -1346,7 +1465,7 @@ def main() -> None:
     st.divider()
     st.markdown(
         """
-        <div style="text-align: center; color: #6B7280; padding: 0.5rem 0 1rem;">
+        <div style="text-align: center; color: #94A3B8; padding: 0.5rem 0 1rem;">
             Built by <strong>Filippo Zonta, MSc</strong>
         </div>
         """,

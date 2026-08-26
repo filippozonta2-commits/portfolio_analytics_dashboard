@@ -42,6 +42,11 @@ PORTFOLIO_PRESETS = {
     }
 }
 
+# Common exchange symbols that require an exchange suffix on Yahoo Finance.
+YAHOO_TICKER_ALIASES = {
+    'SGLN': 'SGLN.L'
+}
+
 
 def applyPortfolioPreset(presetName: str) -> None:
     '''Apply a named portfolio preset to session state.'''
@@ -88,9 +93,12 @@ def parseTickers(
         if ticker.strip()
     ]
 
-    return list(
-        dict.fromkeys(tickers)
-    )
+    yahooTickers = [
+        YAHOO_TICKER_ALIASES.get(ticker, ticker)
+        for ticker in tickers
+    ]
+
+    return list(dict.fromkeys(yahooTickers))
 
 
 def validateTickers(

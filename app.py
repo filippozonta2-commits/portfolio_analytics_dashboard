@@ -73,7 +73,7 @@ from src.utils import (
 )
 
 
-BUILD_VERSION = 'dividends-fix-2026-09-07.1'
+BUILD_VERSION = 'fundamentals-fix-2026-09-07.1'
 
 
 st.set_page_config(
@@ -1051,7 +1051,8 @@ def renderSimulationTab(
 def renderFundamentalsTab(
     settings: dict,
     prices: pd.DataFrame,
-    weights: pd.Series
+    weights: pd.Series,
+    dividendSummary: pd.DataFrame
 ) -> None:
     renderSectionTitle(
         'Fundamentals',
@@ -1091,10 +1092,30 @@ def renderFundamentalsTab(
     )
     priceFallback = priceFallback.reindex(columns=tickers)
 
-    if fundamentals.empty:
-        fundamentals = priceFallback
-    else:
-        fundamentals = fundamentals.combine_first(priceFallback)
+    dividendRows = pd.DataFrame(
+        {
+            ticker: {
+                ('Dividends', 'Dividend Yield'):
+                    dividendSummary.loc[ticker, 'Dividend Yield (TTM)'],
+                ('Dividends', 'Trailing Annual Dividend Yield'):
+                    dividendSummary.loc[ticker, 'Dividend Yield (TTM)'],
+                ('Dividends', 'Dividend Rate'):
+                    dividendSummary.loc[ticker, 'Dividends / Share (TTM)'],
+                ('Dividends', 'Trailing Annual Dividend Rate'):
+                    dividendSummary.loc[ticker, 'Dividends / Share (TTM)']
+            }
+            for ticker in tickers
+            if ticker in dividendSummary.index
+        }
+    )
+    if not dividendRows.empty:
+        dividendRows.index = pd.MultiIndex.from_tuples(
+            dividendRows.index,
+            names=['Section', 'Metric']
+        )
+
+    fundamentals = fundamentals.combine_first(priceFallback)
+    fundamentals = fundamentals.combine_first(dividendRows)
 
     if fundamentals.empty:
         renderEmptyState(
@@ -1508,7 +1529,12 @@ def main() -> None:
         renderSimulationTab(portfolioReturnSeries, settings)
 
     with fundamentalsTab:
-        renderFundamentalsTab(settings, prices, weights)
+        renderFundamentalsTab(
+            settings,
+            prices,
+            weights,
+            dividendSummary
+        )
 
     with methodologyTab:
         renderMethodologyTab(settings, riskFreeInfo)

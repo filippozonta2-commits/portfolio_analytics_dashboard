@@ -122,6 +122,153 @@ def _quoteApiFallback(ticker: str) -> dict[str, Any]:
     return {}
 
 
+def _safeStatement(
+    tickerObject: yf.Ticker,
+    methodName: str,
+    attributeName: str
+) -> pd.DataFrame:
+    '''Retrieve a financial statement without failing the whole summary.'''
+    try:
+        method = getattr(tickerObject, methodName)
+        statement = method(freq='yearly')
+        if statement is not None and not statement.empty:
+            return statement
+    except Exception:
+        pass
+
+    try:
+        statement = getattr(tickerObject, attributeName)
+        if statement is not None and not statement.empty:
+            return statement
+    except Exception:
+        pass
+
+    return pd.DataFrame()
+
+
+def _firstStatementValue(
+    statement: pd.DataFrame,
+    rowNames: tuple[str, ...]
+) -> float | None:
+    '''Return the newest numeric value found across equivalent row names.'''
+    if statement.empty:
+        return None
+
+    for rowName in rowNames:
+        if rowName not in statement.index:
+            continue
+
+        values = statement.loc[rowName]
+        if isinstance(values, pd.DataFrame):
+            values = values.iloc[0]
+
+        numeric = pd.to_numeric(values, errors='coerce')
+
+        if isinstance(numeric, pd.Series):
+            numeric = numeric.dropna()
+            if not numeric.empty:
+                return float(numeric.iloc[0])
+        elif pd.notna(numeric):
+            return float(numeric)
+
+    return None
+
+
+def _financialStatementFallback(
+    tickerObject: yf.Ticker
+) -> dict[str, Any]:
+    '''Derive core fundamentals from Yahoo financial statements.'''
+    income = _safeStatement(
+        tickerObject, 'get_income_stmt', 'income_stmt'
+    )
+    balance = _safeStatement(
+        tickerObject, 'get_balance_sheet', 'balance_sheet'
+    )
+    cashFlow = _safeStatement(
+        tickerObject, 'get_cash_flow', 'cash_flow'
+    )
+
+    values = {
+        'totalRevenue': _firstStatementValue(
+            income, ('Total Revenue', 'Operating Revenue')
+        ),
+        'netIncomeToCommon': _firstStatementValue(
+            income, ('Net Income Common Stockholders', 'Net Income')
+        ),
+        'grossProfits': _firstStatementValue(
+            income, ('Gross Profit',)
+        ),
+        'ebitda': _firstStatementValue(
+            income, ('EBITDA', 'Normalized EBITDA')
+        ),
+        'trailingEps': _firstStatementValue(
+            income, ('Diluted EPS', 'Basic EPS')
+        ),
+        'totalAssets': _firstStatementValue(
+            balance, ('Total Assets',)
+        ),
+        'totalStockholderEquity': _firstStatementValue(
+            balance,
+            ('Stockholders Equity', 'Total Stockholder Equity')
+        ),
+        'totalDebt': _firstStatementValue(
+            balance, ('Total Debt',)
+        ),
+        'totalCash': _firstStatementValue(
+            balance,
+            (
+                'Cash Cash Equivalents And Short Term Investments',
+                'Cash And Cash Equivalents'
+            )
+        ),
+        'currentAssets': _firstStatementValue(
+            balance, ('Current Assets', 'Total Current Assets')
+        ),
+        'currentLiabilities': _firstStatementValue(
+            balance, ('Current Liabilities', 'Total Current Liabilities')
+        ),
+        'operatingCashflow': _firstStatementValue(
+            cashFlow, ('Operating Cash Flow', 'Total Cash From Operating Activities')
+        ),
+        'freeCashflow': _firstStatementValue(
+            cashFlow, ('Free Cash Flow',)
+        )
+    }
+
+    revenue = values['totalRevenue']
+    netIncome = values['netIncomeToCommon']
+    grossProfit = values['grossProfits']
+    ebitda = values['ebitda']
+    assets = values['totalAssets']
+    equity = values['totalStockholderEquity']
+    debt = values['totalDebt']
+    currentAssets = values['currentAssets']
+    currentLiabilities = values['currentLiabilities']
+
+    if revenue not in (None, 0):
+        if netIncome is not None:
+            values['profitMargins'] = netIncome / revenue
+        if grossProfit is not None:
+            values['grossMargins'] = grossProfit / revenue
+        if ebitda is not None:
+            values['ebitdaMargins'] = ebitda / revenue
+
+    if netIncome is not None and equity not in (None, 0):
+        values['returnOnEquity'] = netIncome / equity
+    if netIncome is not None and assets not in (None, 0):
+        values['returnOnAssets'] = netIncome / assets
+    if debt is not None and equity not in (None, 0):
+        values['debtToEquity'] = 100 * debt / equity
+    if currentAssets is not None and currentLiabilities not in (None, 0):
+        values['currentRatio'] = currentAssets / currentLiabilities
+
+    return {
+        field: value
+        for field, value in values.items()
+        if value is not None
+    }
+
+
 @st.cache_data(ttl=21600, show_spinner=False)
 def companyInfo(ticker: str) -> dict[str, Any]:
     '''Return company information.'''
@@ -146,6 +293,10 @@ def companyInfo(ticker: str) -> dict[str, Any]:
             info[field] = value
 
     for field, value in _fastInfoFallback(tickerObject).items():
+        if info.get(field) is None:
+            info[field] = value
+
+    for field, value in _financialStatementFallback(tickerObject).items():
         if info.get(field) is None:
             info[field] = value
 

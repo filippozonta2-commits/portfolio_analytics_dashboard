@@ -273,6 +273,75 @@ def getData(
 
     return prices.astype(float)
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def getDividendSummary(
+    tickers: Iterable[str],
+    startDate,
+    endDate
+) -> pd.DataFrame:
+    '''Return cash dividends and trailing dividend yield for each asset.'''
+    tickers = _cleanTickers(tickers)
+    startDate, endDate = _validateDateRange(startDate, endDate)
+
+    rows = []
+    # Yahoo treats end as exclusive, so include the selected end date.
+    downloadEnd = endDate + pd.Timedelta(days=1)
+    trailingStart = endDate - pd.Timedelta(days=365)
+
+    for ticker in tickers:
+        try:
+            history = yf.Ticker(ticker).history(
+                start=startDate.strftime('%Y-%m-%d'),
+                end=downloadEnd.strftime('%Y-%m-%d'),
+                auto_adjust=False,
+                actions=True
+            )
+        except Exception:
+            history = pd.DataFrame()
+
+        dividends = (
+            pd.to_numeric(history.get('Dividends'), errors='coerce')
+            if not history.empty and 'Dividends' in history
+            else pd.Series(dtype=float)
+        )
+        dividends = dividends.fillna(0.0)
+
+        dividendTimezone = getattr(dividends.index, 'tz', None)
+        comparisonStart = (
+            trailingStart.tz_localize(dividendTimezone)
+            if dividendTimezone is not None
+            else trailingStart
+        )
+
+        trailingDividends = float(
+            dividends.loc[dividends.index >= comparisonStart].sum()
+        ) if not dividends.empty else 0.0
+        periodDividends = float(dividends.sum())
+        paymentCount = int((dividends > 0).sum())
+
+        close = (
+            pd.to_numeric(history['Close'], errors='coerce').dropna()
+            if not history.empty and 'Close' in history
+            else pd.Series(dtype=float)
+        )
+        latestPrice = float(close.iloc[-1]) if not close.empty else np.nan
+        dividendYield = (
+            trailingDividends / latestPrice
+            if np.isfinite(latestPrice) and latestPrice > 0
+            else np.nan
+        )
+
+        rows.append({
+            'Ticker': ticker,
+            'Dividends / Share (Period)': periodDividends,
+            'Dividends / Share (TTM)': trailingDividends,
+            'Dividend Yield (TTM)': dividendYield,
+            'Payments (Period)': paymentCount
+        })
+
+    return pd.DataFrame(rows).set_index('Ticker')
+
+
 def getRiskFreeRate(
     mode: Literal['automatic', 'manual'] = 'automatic',
     method: str = 'match',

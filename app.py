@@ -37,6 +37,7 @@ from src.data import (
     correlationMatrix,
     covarianceMatrix,
     getData,
+    getDividendSummary,
     getRiskFreeRate,
     normalizePrices,
     pricePerformance
@@ -72,7 +73,7 @@ from src.utils import (
 )
 
 
-BUILD_VERSION = 'runtime-fix-2026-08-26.2'
+BUILD_VERSION = 'dividends-fix-2026-09-07.1'
 
 
 st.set_page_config(
@@ -438,6 +439,8 @@ def renderPerformanceRiskTab(
     portfolioReturnSeries: pd.Series,
     benchmarkReturnSeries: pd.Series | None,
     riskFreeRate: float,
+    dividendSummary: pd.DataFrame,
+    weights: pd.Series,
     settings: dict
 ) -> None:
     renderSectionTitle(
@@ -454,6 +457,35 @@ def renderPerformanceRiskTab(
     )
 
     renderDataFrame(summary.to_frame(name='Value'))
+
+    renderSectionTitle(
+        'Dividends',
+        'Cash distributions are shown separately; total-return performance '
+        'already includes them through adjusted prices.'
+    )
+
+    portfolioDividendYield = float(
+        dividendSummary['Dividend Yield (TTM)']
+        .fillna(0.0)
+        .reindex(weights.index, fill_value=0.0)
+        .dot(weights)
+    )
+    st.metric(
+        'Portfolio Dividend Yield (TTM)',
+        formatPercent(
+            portfolioDividendYield,
+            decimals=settings['decimalPlaces']
+        )
+    )
+
+    displayDividends = dividendSummary.copy()
+    displayDividends['Dividend Yield (TTM)'] = (
+        displayDividends['Dividend Yield (TTM)'] * 100
+    )
+    displayDividends = displayDividends.rename(columns={
+        'Dividend Yield (TTM)': 'Dividend Yield (TTM, %)'
+    })
+    renderDataFrame(displayDividends)
 
     drawdown = drawdownSeries(portfolioReturnSeries)
     st.plotly_chart(
@@ -1350,6 +1382,12 @@ def main() -> None:
                 settings['endDate']
             )
 
+            dividendSummary = getDividendSummary(
+                settings['tickers'],
+                settings['startDate'],
+                settings['endDate']
+            )
+
             returns = computeReturns(prices)
 
         riskFreeInfo = getRiskFreeRate(
@@ -1435,6 +1473,8 @@ def main() -> None:
             portfolioReturnSeries,
             benchmarkReturnSeries,
             riskFreeRate,
+            dividendSummary,
+            weights,
             settings
         )
 

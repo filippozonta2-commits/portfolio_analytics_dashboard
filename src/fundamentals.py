@@ -296,9 +296,16 @@ def companyInfo(ticker: str) -> dict[str, Any]:
         if info.get(field) is None:
             info[field] = value
 
-    for field, value in _financialStatementFallback(tickerObject).items():
-        if info.get(field) is None:
-            info[field] = value
+    accountingFields = (
+        'totalRevenue',
+        'grossProfits',
+        'netIncomeToCommon',
+        'totalAssets'
+    )
+    if not any(info.get(field) is not None for field in accountingFields):
+        for field, value in _financialStatementFallback(tickerObject).items():
+            if info.get(field) is None:
+                info[field] = value
 
     info.setdefault('symbol', ticker)
     info.setdefault('shortName', ticker)
@@ -744,23 +751,28 @@ def multipleFundamentalsSummary(
         )
 
     summaries = {}
+    errors = {}
 
     for ticker in dict.fromkeys(tickers):
         try:
             summary = fundamentalsSummary(ticker)
             summaries[ticker] = summary['Value']
-        except (ValueError, RuntimeError):
+        except (ValueError, RuntimeError) as error:
             summaries[ticker] = pd.Series(
                 dtype=object
             )
+            errors[ticker] = str(error)
 
     if not summaries:
         return pd.DataFrame()
 
-    return pd.concat(
+    result = pd.concat(
         summaries,
         axis=1
     )
+    result.attrs['errors'] = errors
+
+    return result
 
 
 def formatFundamentals(

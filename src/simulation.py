@@ -595,7 +595,9 @@ def randomPortfolios(
     portfolios: int = 5000,
     riskFreeRate: float = 0,
     tradingDays: int = TRADING_DAYS,
-    randomSeed: int | None = None
+    randomSeed: int | None = None,
+    minimumWeight: float = 0,
+    maximumWeight: float = 1
 ) -> pd.DataFrame:
     '''Generate random long-only portfolios.'''
     if portfolios <= 0:
@@ -614,10 +616,43 @@ def randomPortfolios(
         randomSeed
     )
 
-    weights = randomGenerator.dirichlet(
-        np.ones(numberOfAssets),
-        size=portfolios
+    bounds = validateBounds(
+        numberOfAssets,
+        minimumWeight=minimumWeight,
+        maximumWeight=maximumWeight
     )
+    lower = bounds[0][0]
+    upper = bounds[0][1]
+    baseWeights = np.full(numberOfAssets, 1 / numberOfAssets)
+
+    if numberOfAssets == 1:
+        weights = np.ones((portfolios, 1))
+    else:
+        directions = randomGenerator.normal(
+        size=(portfolios, numberOfAssets)
+    )
+        directions -= directions.mean(axis=1, keepdims=True)
+
+        positiveLimits = np.divide(
+            upper - baseWeights,
+            directions,
+            out=np.full_like(directions, np.inf),
+            where=directions > 1e-12
+        )
+        negativeLimits = np.divide(
+            lower - baseWeights,
+            directions,
+            out=np.full_like(directions, np.inf),
+            where=directions < -1e-12
+        )
+        stepLimits = np.minimum(
+            positiveLimits.min(axis=1),
+            negativeLimits.min(axis=1)
+        )
+        steps = randomGenerator.random(portfolios) * stepLimits
+        weights = baseWeights + directions * steps[:, None]
+        weights[np.abs(weights) < 1e-12] = 0.0
+        weights = weights / weights.sum(axis=1, keepdims=True)
 
     expectedReturns = (
         weights

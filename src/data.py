@@ -299,10 +299,18 @@ def getDividendSummary(
         except Exception:
             history = pd.DataFrame()
 
+        downloadSucceeded = (
+            not history.empty
+            and 'Close' in history
+        )
         dividends = (
             pd.to_numeric(history.get('Dividends'), errors='coerce')
-            if not history.empty and 'Dividends' in history
-            else pd.Series(dtype=float)
+            if downloadSucceeded and 'Dividends' in history
+            else pd.Series(
+                0.0,
+                index=history.index,
+                dtype=float
+            ) if downloadSucceeded else pd.Series(dtype=float)
         )
         dividends = dividends.fillna(0.0)
 
@@ -333,10 +341,16 @@ def getDividendSummary(
 
         rows.append({
             'Ticker': ticker,
-            'Dividends / Share (Period)': periodDividends,
-            'Dividends / Share (TTM)': trailingDividends,
-            'Dividend Yield (TTM)': dividendYield,
-            'Payments (Period)': paymentCount
+            'Dividends / Share (Period)':
+                periodDividends if downloadSucceeded else np.nan,
+            'Dividends / Share (TTM)':
+                trailingDividends if downloadSucceeded else np.nan,
+            'Dividend Yield (TTM)':
+                dividendYield if downloadSucceeded else np.nan,
+            'Payments (Period)':
+                paymentCount if downloadSucceeded else np.nan,
+            'Data Status':
+                'Available' if downloadSucceeded else 'Unavailable'
         })
 
     return pd.DataFrame(rows).set_index('Ticker')

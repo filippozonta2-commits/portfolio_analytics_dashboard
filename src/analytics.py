@@ -11,7 +11,8 @@ TRADING_DAYS = 252
 
 def validateWeights(
     weights: np.ndarray | pd.Series | list[float],
-    tolerance: float = 1e-6
+    tolerance: float = 1e-6,
+    allowShortSelling: bool = False
 ) -> np.ndarray:
     '''Validate and standardize portfolio weights.'''
     weights = np.asarray(weights, dtype=float)
@@ -25,7 +26,7 @@ def validateWeights(
     if not np.isfinite(weights).all():
         raise ValueError('weights must contain finite values.')
 
-    if np.any(weights < 0):
+    if not allowShortSelling and np.any(weights < 0):
         raise ValueError('weights cannot contain negative values.')
 
     if not np.isclose(weights.sum(), 1, atol=tolerance):
@@ -79,7 +80,8 @@ def computeWeights(
 
 def alignWeights(
     weights: pd.Series,
-    assetNames: list[str] | pd.Index
+    assetNames: list[str] | pd.Index,
+    allowShortSelling: bool = False
 ) -> pd.Series:
     '''Align portfolio weights with the selected asset order.'''
     if not isinstance(weights, pd.Series):
@@ -101,36 +103,108 @@ def alignWeights(
 
     alignedWeights = weights.reindex(assetNames).astype(float)
 
-    validateWeights(alignedWeights.values)
+    validateWeights(
+        alignedWeights.values,
+        allowShortSelling=allowShortSelling
+    )
 
     return alignedWeights
 
 
 def portfolioReturns(
     returns: pd.DataFrame,
-    weights: pd.Series | np.ndarray | list[float]
+    weights: pd.Series | np.ndarray | list[float],
+    rebalanceFrequency: str = 'None',
+    allowShortSelling: bool = False
 ) -> pd.Series:
-    '''Compute the historical daily portfolio return series.'''
+    '''Compute portfolio returns with buy-and-hold or periodic rebalancing.'''
     if returns.empty:
         raise ValueError('returns cannot be empty.')
 
     if isinstance(weights, pd.Series):
         weights = alignWeights(
             weights,
-            returns.columns
+            returns.columns,
+            allowShortSelling=allowShortSelling
         ).values
     else:
-        weights = validateWeights(weights)
+        weights = validateWeights(
+            weights,
+            allowShortSelling=allowShortSelling
+        )
 
         if len(weights) != returns.shape[1]:
             raise ValueError(
                 'weights length must match the number of assets.'
             )
 
-    portfolioReturnSeries = returns.dot(weights)
-    portfolioReturnSeries.name = 'Portfolio Return'
+    frequencies = {
+        'None': None,
+        'Daily': 'D',
+        'Monthly': 'M',
+        'Quarterly': 'Q',
+        'Semiannual': '2Q',
+        'Annual': 'Y'
+    }
+    if rebalanceFrequency not in frequencies:
+        raise ValueError(
+            f'Unsupported rebalancing frequency: {rebalanceFrequency}.'
+        )
 
-    return portfolioReturnSeries
+    cleanReturns = returns.astype(float)
+    if not np.isfinite(cleanReturns.to_numpy()).all():
+        raise ValueError('returns must contain finite values.')
+
+    holdings = np.asarray(weights, dtype=float).copy()
+    previousValue = float(holdings.sum())
+    portfolioReturnsList = []
+    previousPeriod = None
+
+    if not isinstance(cleanReturns.index, pd.DatetimeIndex):
+        cleanReturns.index = pd.to_datetime(cleanReturns.index)
+
+    for date, row in cleanReturns.iterrows():
+        frequency = frequencies[rebalanceFrequency]
+        currentPeriod = (
+            date.to_period(frequency)
+            if frequency not in (None, 'D', '2Q')
+            else (
+                (date.year, 1 if date.month <= 6 else 2)
+                if frequency == '2Q'
+                else date
+            )
+        )
+
+        shouldRebalance = (
+            frequency == 'D'
+            or (
+                frequency is not None
+                and previousPeriod is not None
+                and currentPeriod != previousPeriod
+            )
+        )
+        if shouldRebalance:
+            holdings = previousValue * np.asarray(weights, dtype=float)
+
+        holdings = holdings * (1 + row.to_numpy(dtype=float))
+        portfolioValue = float(holdings.sum())
+
+        if portfolioValue <= 0 or previousValue <= 0:
+            raise ValueError(
+                'Portfolio value became non-positive; returns are undefined.'
+            )
+
+        portfolioReturnsList.append(
+            portfolioValue / previousValue - 1
+        )
+        previousValue = portfolioValue
+        previousPeriod = currentPeriod
+
+    return pd.Series(
+        portfolioReturnsList,
+        index=cleanReturns.index,
+        name='Portfolio Return'
+    )
 
 
 def cumulativeReturns(
@@ -294,7 +368,7 @@ def portfolioVolatility(
 
     volatility = np.sqrt(max(variance, 0))
 
-    if not annualized:
+    if annualized:
         volatility *= np.sqrt(tradingDays)
 
     return float(volatility)

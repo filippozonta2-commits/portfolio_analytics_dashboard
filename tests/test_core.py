@@ -2,9 +2,21 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.fundamentals import dividendMetrics, formatFundamentals
+from app import runSimulation
+from src.analytics import portfolioReturns, portfolioVolatility
+from src.data import getDividendSummary
+from src.fundamentals import (
+    dividendMetrics,
+    formatFundamentals,
+    multipleFundamentalsSummary
+)
 from src.sidebar import normalizeWeights, parseTickers, validateCustomWeightTotal, validateTickers
-from src.simulation import efficientFrontier, minimumVariancePortfolio, optimizationWeights
+from src.simulation import (
+    efficientFrontier,
+    minimumVariancePortfolio,
+    optimizationWeights,
+    randomPortfolios
+)
 
 
 def test_ticker_parsing_is_clean_and_unlimited():
@@ -94,3 +106,127 @@ def test_efficient_frontier_is_upper_and_monotonic():
     assert frontier['Expected Return'].is_monotonic_increasing
     assert frontier['Volatility'].is_monotonic_increasing
     assert frontier['Expected Return'].min() >= minimumVariance['expectedReturn'] - 1e-6
+
+
+
+def test_short_positions_are_supported_only_when_enabled():
+    dates = pd.date_range('2026-01-02', periods=2, freq='B')
+    returns = pd.DataFrame(
+        {'A': [0.01, 0.02], 'B': [-0.01, 0.01]},
+        index=dates
+    )
+    weights = pd.Series({'A': 1.20, 'B': -0.20})
+
+    with pytest.raises(ValueError, match='negative'):
+        portfolioReturns(returns, weights)
+
+    result = portfolioReturns(
+        returns,
+        weights,
+        allowShortSelling=True
+    )
+    assert len(result) == len(returns)
+    assert np.isfinite(result).all()
+
+
+def test_rebalancing_frequency_changes_portfolio_path():
+    dates = pd.to_datetime(['2026-01-30', '2026-02-02'])
+    returns = pd.DataFrame(
+        {'A': [0.10, 0.10], 'B': [0.0, 0.0]},
+        index=dates
+    )
+    weights = pd.Series({'A': 0.50, 'B': 0.50})
+
+    buyAndHold = portfolioReturns(
+        returns, weights, rebalanceFrequency='None'
+    )
+    monthly = portfolioReturns(
+        returns, weights, rebalanceFrequency='Monthly'
+    )
+
+    assert np.isclose(buyAndHold.iloc[0], 0.05)
+    assert buyAndHold.iloc[1] > 0.05
+    assert np.allclose(monthly.values, [0.05, 0.05])
+
+
+def test_portfolio_volatility_annualized_flag_is_not_reversed():
+    covariance = np.array([[0.0001]])
+    daily = portfolioVolatility(
+        covariance, [1.0], annualized=False
+    )
+    annual = portfolioVolatility(
+        covariance, [1.0], annualized=True
+    )
+
+    assert np.isclose(daily, 0.01)
+    assert np.isclose(annual, 0.01 * np.sqrt(252))
+
+
+def test_random_portfolios_respect_weight_constraints():
+    means = pd.Series([0.0002, 0.0004, 0.0006])
+    covariance = np.diag([0.0001, 0.0002, 0.0003])
+    samples = randomPortfolios(
+        means,
+        covariance,
+        portfolios=500,
+        minimumWeight=-0.20,
+        maximumWeight=0.70,
+        randomSeed=7
+    )
+    weights = np.vstack(samples['Weights'])
+
+    assert np.allclose(weights.sum(axis=1), 1.0)
+    assert weights.min() >= -0.20 - 1e-10
+    assert weights.max() <= 0.70 + 1e-10
+
+
+def test_gbm_uses_exponential_log_return_compounding():
+    historicalReturns = pd.Series(
+        [0.01, 0.01, 0.01],
+        index=pd.date_range('2026-01-01', periods=3)
+    )
+    paths = runSimulation(
+        historicalReturns,
+        method='GBM',
+        simulations=2,
+        horizonDays=3,
+        initialValue=100.0,
+        randomSeed=42
+    )
+
+    expected = 100.0 * 1.01 ** np.arange(1, 4)
+    assert np.allclose(paths.iloc[:, 0].values, expected)
+    assert np.allclose(paths.iloc[:, 1].values, expected)
+
+
+def test_unavailable_dividend_data_is_not_reported_as_zero(monkeypatch):
+    class BrokenTicker:
+        def __init__(self, ticker):
+            self.ticker = ticker
+
+        def history(self, **kwargs):
+            raise RuntimeError('temporary failure')
+
+    monkeypatch.setattr('src.data.yf.Ticker', BrokenTicker)
+    getDividendSummary.clear()
+    summary = getDividendSummary(
+        ['AAPL'],
+        pd.Timestamp('2025-01-01'),
+        pd.Timestamp('2026-01-01')
+    )
+
+    assert pd.isna(summary.loc['AAPL', 'Dividend Yield (TTM)'])
+    assert summary.loc['AAPL', 'Data Status'] == 'Unavailable'
+
+
+def test_fundamental_failures_are_exposed(monkeypatch):
+    def fail(ticker):
+        raise ValueError('provider unavailable')
+
+    monkeypatch.setattr(
+        'src.fundamentals.fundamentalsSummary',
+        fail
+    )
+    result = multipleFundamentalsSummary(['AAPL'])
+
+    assert 'AAPL' in result.attrs['errors']

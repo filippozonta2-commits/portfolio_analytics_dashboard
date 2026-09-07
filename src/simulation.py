@@ -625,31 +625,34 @@ def randomPortfolios(
     upper = bounds[0][1]
     baseWeights = np.full(numberOfAssets, 1 / numberOfAssets)
 
-    directions = randomGenerator.normal(
+    if numberOfAssets == 1:
+        weights = np.ones((portfolios, 1))
+    else:
+        directions = randomGenerator.normal(
         size=(portfolios, numberOfAssets)
     )
-    directions -= directions.mean(axis=1, keepdims=True)
+        directions -= directions.mean(axis=1, keepdims=True)
 
-    positiveLimits = np.divide(
-        upper - baseWeights,
-        directions,
-        out=np.full_like(directions, np.inf),
-        where=directions > 1e-12
-    )
-    negativeLimits = np.divide(
-        lower - baseWeights,
-        directions,
-        out=np.full_like(directions, np.inf),
-        where=directions < -1e-12
-    )
-    stepLimits = np.minimum(
-        positiveLimits.min(axis=1),
-        negativeLimits.min(axis=1)
-    )
-    steps = randomGenerator.random(portfolios) * stepLimits
-    weights = baseWeights + directions * steps[:, None]
-    weights[np.abs(weights) < 1e-12] = 0.0
-    weights = weights / weights.sum(axis=1, keepdims=True)
+        positiveLimits = np.divide(
+            upper - baseWeights,
+            directions,
+            out=np.full_like(directions, np.inf),
+            where=directions > 1e-12
+        )
+        negativeLimits = np.divide(
+            lower - baseWeights,
+            directions,
+            out=np.full_like(directions, np.inf),
+            where=directions < -1e-12
+        )
+        stepLimits = np.minimum(
+            positiveLimits.min(axis=1),
+            negativeLimits.min(axis=1)
+        )
+        steps = randomGenerator.random(portfolios) * stepLimits
+        weights = baseWeights + directions * steps[:, None]
+        weights[np.abs(weights) < 1e-12] = 0.0
+        weights = weights / weights.sum(axis=1, keepdims=True)
 
     expectedReturns = (
         weights

@@ -73,7 +73,7 @@ from src.utils import (
 )
 
 
-BUILD_VERSION = 'fundamentals-fix-2026-09-07.1'
+BUILD_VERSION = 'model-correctness-2026-09-07.1'
 
 
 st.set_page_config(
@@ -142,34 +142,40 @@ def runSimulation(
 
     rng = np.random.default_rng(randomSeed)
 
-    if method == 'Bootstrap':
+    if method == 'GBM':
+        safeReturns = np.clip(
+            returnsArray,
+            a_min=-0.999999,
+            a_max=None
+        )
+        logReturns = np.log1p(safeReturns)
+        logDrift = logReturns.mean()
+        logVolatility = logReturns.std(ddof=1)
+        sampledLogReturns = rng.normal(
+            loc=logDrift,
+            scale=logVolatility,
+            size=(horizonDays, simulations)
+        )
+        growthFactors = np.exp(sampledLogReturns)
+
+    elif method == 'Bootstrap':
         sampledReturns = rng.choice(
             returnsArray,
             size=(horizonDays, simulations),
             replace=True
         )
-
-    elif method == 'GBM':
-        drift = returnsArray.mean()
-        volatility = returnsArray.std(ddof=1)
-
-        sampledReturns = rng.normal(
-            loc=drift - 0.5 * volatility ** 2,
-            scale=volatility,
-            size=(horizonDays, simulations)
-        )
+        growthFactors = 1 + sampledReturns
 
     else:
         drift = returnsArray.mean()
         volatility = returnsArray.std(ddof=1)
-
         sampledReturns = rng.normal(
             loc=drift,
             scale=volatility,
             size=(horizonDays, simulations)
         )
+        growthFactors = 1 + sampledReturns
 
-    growthFactors = 1 + sampledReturns
     growthFactors = np.clip(growthFactors, a_min=1e-6, a_max=None)
 
     paths = initialValue * np.cumprod(growthFactors, axis=0)
@@ -464,19 +470,49 @@ def renderPerformanceRiskTab(
         'already includes them through adjusted prices.'
     )
 
-    portfolioDividendYield = float(
-        dividendSummary['Dividend Yield (TTM)']
-        .fillna(0.0)
-        .reindex(weights.index, fill_value=0.0)
-        .dot(weights)
+    alignedYields = dividendSummary[
+        'Dividend Yield (TTM)'
+    ].reindex(weights.index)
+    available = alignedYields.notna()
+    grossWeights = weights.abs()
+    grossExposure = float(grossWeights.sum())
+    coveredExposure = float(grossWeights[available].sum())
+    dividendCoverage = (
+        coveredExposure / grossExposure
+        if grossExposure > 0
+        else 0.0
     )
-    st.metric(
-        'Portfolio Dividend Yield (TTM)',
-        formatPercent(
-            portfolioDividendYield,
-            decimals=settings['decimalPlaces']
+    knownDividendYield = float(
+        alignedYields[available].dot(weights[available])
+    )
+
+    renderMetricRow([
+        {
+            'label': 'Known Portfolio Dividend Yield (TTM)',
+            'value': formatPercent(
+                knownDividendYield,
+                decimals=settings['decimalPlaces']
+            ),
+            'help': 'Unknown dividend data is excluded, never treated as zero.'
+        },
+        {
+            'label': 'Dividend Data Coverage',
+            'value': formatPercent(
+                dividendCoverage,
+                decimals=1
+            ),
+            'help': 'Share of gross portfolio exposure with available data.'
+        }
+    ])
+
+    if dividendCoverage < 0.999:
+        unavailableTickers = ', '.join(
+            alignedYields.index[~available]
         )
-    )
+        st.warning(
+            'Dividend data is temporarily unavailable for: '
+            f'{unavailableTickers}. The known yield is incomplete.'
+        )
 
     displayDividends = dividendSummary.copy()
     displayDividends['Dividend Yield (TTM)'] = (
@@ -773,7 +809,9 @@ def renderOptimizationTab(
             portfolios=settings['randomPortfolioCount'],
             riskFreeRate=riskFreeRate,
             tradingDays=tradingDays,
-            randomSeed=settings['randomSeed']
+            randomSeed=settings['randomSeed'],
+            minimumWeight=minimumWeight,
+            maximumWeight=maximumWeight
         )
 
         minimumVariance = minimumVariancePortfolio(
@@ -1071,10 +1109,18 @@ def renderFundamentalsTab(
     with st.spinner('Fetching fundamentals...'):
         try:
             fundamentals = multipleFundamentalsSummary(tickers)
+            fundamentalsErrors = fundamentals.attrs.get('errors', {})
         except Exception as error:
             renderEmptyState('Unable to load fundamentals', str(error))
-
             fundamentals = pd.DataFrame()
+            fundamentalsErrors = {}
+
+    if fundamentalsErrors:
+        failedTickers = ', '.join(fundamentalsErrors)
+        st.warning(
+            'Fundamental data is temporarily unavailable for: '
+            f'{failedTickers}. Market-price and dividend fallbacks are shown.'
+        )
 
     priceRows = {
         ('Market', 'Current Price'): prices.iloc[-1],
@@ -1424,7 +1470,9 @@ def main() -> None:
 
         portfolioReturnSeries = computePortfolioReturns(
             returns,
-            weights
+            weights,
+            rebalanceFrequency=settings['rebalanceFrequency'],
+            allowShortSelling=settings['allowShortSelling']
         )
 
         benchmarkReturnSeries = None

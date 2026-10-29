@@ -59,6 +59,22 @@ Returns are computed from adjusted daily closing prices and annualized using a c
 
 Historical VaR/CVaR use empirical quantiles. Parametric VaR assumes normally distributed returns. Simulation outputs are scenario estimates based on historical inputs and do not model transaction costs, taxes, liquidity or market impact.
 
+## Risk metrics and interpretation
+
+- **Sharpe ratio:** arithmetic mean daily return multiplied by the configured trading days, minus the annual risk-free rate, divided by sample daily volatility multiplied by the square root of trading days. A zero-volatility series yields an undefined ratio.
+- **Drawdown / maximum drawdown:** compounded wealth starts at **1.0 before the first return**. The initial investment is part of the high-water mark, so a loss on day one is included. Maximum drawdown is reported as a negative fraction.
+- **Historical VaR and CVaR:** one-period loss measures from the empirical lower tail, shown as **nonnegative loss magnitudes**. CVaR is the average loss among observations at or below the empirical quantile; this finite-sample convention may differ from interpolated expected shortfall.
+- **Parametric VaR:** one-period Gaussian approximation based on sample mean and sample standard deviation; not a guarantee or a robust estimate of extreme tails.
+- **Benchmark alpha / beta:** computed on the **intersection of available return dates**. Jensen alpha uses annualized arithmetic returns and the selected annual risk-free rate. The displayed benchmark-relative results should not be compared with unaligned date windows.
+- **Optimization:** expected returns and covariance are estimated from the selected historical sample. Optimized allocations are **in-sample illustrations**, not out-of-sample trading performance or demonstrated alpha.
+- **Costs and realism:** historical returns and simulations exclude transaction costs, financing/borrow fees, taxes, slippage and market impact. The selected index benchmark may not be directly investable. Yahoo's adjusted prices and data availability may be revised.
+
+### Reproducible synthetic risk checks
+
+The repository includes `tests/test_risk_regressions.py`, which tests first-day drawdowns, recovery paths, date-aligned benchmark alpha, positive-loss VaR/CVaR conventions, Sharpe annualization and insufficient-data behavior. These tests use synthetic returns and do not require Yahoo Finance or FRED access.
+
+Run `python -m pytest -q` after installing `requirements-dev.txt`. Passing synthetic tests does not validate market-data correctness, out-of-sample model performance or live trading assumptions.
+
 ## Data sources
 
 - Yahoo Finance: prices and available security fundamentals

@@ -471,11 +471,14 @@ def drawdownSeries(
 
     returns = returns.dropna().astype(float)
 
-    wealthIndex = (
-        1 + returns
-    ).cumprod()
+    if returns.empty:
+        raise ValueError('returns must contain valid observations.')
 
-    runningPeak = wealthIndex.cummax()
+    wealthIndex = (1 + returns).cumprod()
+
+    # Include the initial wealth of 1.0 as a possible running peak.
+    # Otherwise a loss on the first observation is incorrectly ignored.
+    runningPeak = wealthIndex.cummax().clip(lower=1.0)
 
     drawdowns = (
         wealthIndex / runningPeak
@@ -576,6 +579,9 @@ def historicalCVaR(
 
     returns = returns.dropna().astype(float)
 
+    if returns.empty:
+        raise ValueError('returns must contain valid observations.')
+
     threshold = np.quantile(
         returns,
         1 - confidenceLevel
@@ -619,6 +625,9 @@ def parametricVaR(
         )
 
     returns = returns.dropna().astype(float)
+
+    if len(returns) < 2:
+        raise ValueError('At least two valid observations are required.')
 
     meanReturn = returns.mean()
     volatility = returns.std(ddof=1)
@@ -692,7 +701,20 @@ def alpha(
     riskFreeRate: float = 0,
     tradingDays: int = TRADING_DAYS
 ) -> float:
-    '''Compute annualized Jensen alpha.'''
+    '''Compute annualized Jensen alpha on common benchmark dates.'''
+    alignedReturns = pd.concat(
+        [portfolioReturns.rename('Portfolio'),
+         benchmarkReturns.rename('Benchmark')],
+        axis=1,
+        join='inner'
+    ).dropna()
+
+    if len(alignedReturns) < 2:
+        raise ValueError('At least two aligned observations are required.')
+
+    portfolioReturns = alignedReturns['Portfolio']
+    benchmarkReturns = alignedReturns['Benchmark']
+
     portfolioAnnualReturn = annualizedReturn(
         portfolioReturns,
         tradingDays=tradingDays,

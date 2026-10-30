@@ -78,7 +78,7 @@ Run `python -m pytest -q` after installing `requirements-dev.txt`. Passing synth
 
 ## Data sources
 
-- Yahoo Finance: prices and available security fundamentals
+- Yahoo Finance: adjusted prices and available security fundamentals. The selected start and end dates are treated as **inclusive** in the app; the yfinance download end argument is advanced by one calendar day because the provider's end bound is exclusive. Missing asset prices within the common calendar are forward-filled, which may introduce zero-return days and understate volatility if data gaps are extensive.
 - FRED: US Treasury yields used as the risk-free rate
 
 External data availability, accuracy and update frequency depend on those providers.

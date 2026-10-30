@@ -215,11 +215,15 @@ def getData(
         endDate
     )
 
+    # yfinance treats 'end' as exclusive; include the selected final day.
+    # Keep the user-facing date range inclusive for prices and benchmarks.
+    downloadEnd = endDate.normalize() + pd.Timedelta(days=1)
+
     try:
         data = yf.download(
             tickers=tickers,
             start=startDate.strftime('%Y-%m-%d'),
-            end=endDate.strftime('%Y-%m-%d'),
+            end=downloadEnd.strftime('%Y-%m-%d'),
             auto_adjust=True,
             progress=False,
             group_by='column',

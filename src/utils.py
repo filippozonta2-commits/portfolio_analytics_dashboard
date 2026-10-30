@@ -2848,10 +2848,11 @@ def rollingSharpeRatio(
         annualizationFactor
     )
 
-    periodicRiskFreeRate = annualToPeriodicRate(
-        riskFreeRate,
-        periodsPerYear=annualizationFactor
-    )
+    # Match src.analytics.sharpeRatio: annual arithmetic risk-free return
+    # is apportioned linearly across trading periods. The geometric
+    # annualToPeriodicRate convention would make the rolling and headline
+    # Sharpe ratios disagree for the same return sample.
+    periodicRiskFreeRate = riskFreeRate / annualizationFactor
 
     excessReturns = (
         returns

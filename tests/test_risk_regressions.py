@@ -15,6 +15,7 @@ from src.analytics import (
     parametricVaR,
     sharpeRatio,
 )
+from src.utils import rollingSharpeRatio
 
 
 def test_drawdown_includes_initial_investment_baseline():
@@ -71,3 +72,38 @@ def test_all_missing_returns_raise_clear_error(function):
 def test_parametric_var_requires_sample_variance():
     with pytest.raises(ValueError, match='two valid observations'):
         parametricVaR(pd.Series([0.01]))
+
+
+@pytest.mark.parametrize('risk_free_rate', [0.0, 0.04, 0.12])
+@pytest.mark.parametrize('trading_days', [252, 365])
+def test_last_rolling_sharpe_equals_headline_sharpe_for_same_window(
+    risk_free_rate, trading_days
+):
+    """Same returns, same risk-free convention, same annualization."""
+    returns = pd.Series(
+        [0.012, -0.008, 0.021, 0.004, -0.015, 0.009],
+        index=pd.date_range('2026-01-01', periods=6, freq='B'),
+    )
+    rolling = rollingSharpeRatio(
+        returns,
+        riskFreeRate=risk_free_rate,
+        window=len(returns),
+        annualizationFactor=trading_days,
+    )
+    headline = sharpeRatio(
+        returns,
+        riskFreeRate=risk_free_rate,
+        tradingDays=trading_days,
+    )
+    assert rolling.iloc[-1] == pytest.approx(headline)
+    assert rolling.iloc[:-1].isna().all()
+
+
+def test_rolling_sharpe_uses_only_window_observations():
+    returns = pd.Series([0.25, -0.01, 0.02, -0.005, 0.01])
+    rolling = rollingSharpeRatio(
+        returns, riskFreeRate=0.05, window=4, annualizationFactor=252
+    )
+    assert rolling.iloc[-1] == pytest.approx(
+        sharpeRatio(returns.iloc[-4:], riskFreeRate=0.05)
+    )

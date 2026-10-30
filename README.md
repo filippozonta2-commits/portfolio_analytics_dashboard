@@ -62,6 +62,7 @@ Historical VaR/CVaR use empirical quantiles. Parametric VaR assumes normally dis
 ## Risk metrics and interpretation
 
 - **Sharpe ratio:** arithmetic mean daily return multiplied by the configured trading days, minus the annual risk-free rate, divided by sample daily volatility multiplied by the square root of trading days. A zero-volatility series yields an undefined ratio.
+- **Rolling Sharpe ratio:** uses the same arithmetic risk-free-rate convention as the headline Sharpe: daily excess return is daily portfolio return minus annual risk-free rate divided by the configured trading days. Each rolling window uses sample standard deviation (`ddof=1`), so a full-window rolling Sharpe agrees with the headline Sharpe on the identical observations. Rolling annualized *return* is separately compounded and must not be substituted into this arithmetic Sharpe formula.
 - **Drawdown / maximum drawdown:** compounded wealth starts at **1.0 before the first return**. The initial investment is part of the high-water mark, so a loss on day one is included. Maximum drawdown is reported as a negative fraction.
 - **Historical VaR and CVaR:** one-period loss measures from the empirical lower tail, shown as **nonnegative loss magnitudes**. CVaR is the average loss among observations at or below the empirical quantile; this finite-sample convention may differ from interpolated expected shortfall.
 - **Parametric VaR:** one-period Gaussian approximation based on sample mean and sample standard deviation; not a guarantee or a robust estimate of extreme tails.
@@ -77,7 +78,7 @@ Run `python -m pytest -q` after installing `requirements-dev.txt`. Passing synth
 
 ## Data sources
 
-- Yahoo Finance: prices and available security fundamentals
+- Yahoo Finance: adjusted prices and available security fundamentals. The selected start and end dates are treated as **inclusive** in the app; the yfinance download end argument is advanced by one calendar day because the provider's end bound is exclusive. Missing asset prices within the common calendar are forward-filled, which may introduce zero-return days and understate volatility if data gaps are extensive.
 - FRED: US Treasury yields used as the risk-free rate
 
 External data availability, accuracy and update frequency depend on those providers.
